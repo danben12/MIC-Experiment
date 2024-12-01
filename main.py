@@ -4,12 +4,12 @@ import numpy as np
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename
 from bokeh.io import output_file
-from bokeh.models import Div, HoverTool, ColorBar, LogTicker, LinearColorMapper, BasicTicker, Legend, LegendItem,BoxAnnotation, Span, Whisker
+from bokeh.models import Div, HoverTool, ColorBar, LogTicker, LinearColorMapper, BasicTicker, Legend, LegendItem,BoxAnnotation, Span, Whisker,Label
 from bokeh.layouts import column, row
 from bokeh.palettes import Category20
 from bokeh.plotting import figure, show
 from bokeh.models import ColumnDataSource, CDSView,Select,CustomJS
-from scipy.stats import linregress
+from scipy.stats import linregress, alpha
 import plotly.graph_objects as go
 from matplotlib import cm
 
@@ -80,7 +80,6 @@ def stats_box(df,time, max_step,chip_name):
     return column(stats_div)
 
 def droplet_histogram(df):
-    df.to_csv('droplet.csv')
     bins = np.logspace(np.log10(df['Volume'].min()), np.log10(df['Volume'].max()), num=16)
     hist = figure(title='Histogram of Droplet Size', x_axis_type='log',
                   x_axis_label='Volume', y_axis_label='Frequency', output_backend="webgl")
@@ -200,15 +199,18 @@ def fold_change(dict):
     fold_change = np.where(np.isnan(fold_change), min_fc, fold_change)
     fold_change=np.log2(fold_change)
     df=pd.DataFrame({'Volume':Volume,'fold change':fold_change,'Droplet':droplet_id})
-    df = df.sort_values(by='Volume')
-    df['moving average'] = df['fold change'].rolling(window=50).mean()
+    df = df.sort_values(by='Volume').reset_index(drop=True)
+    sub_df=df[df['fold change']>np.log2(min_fc)].reset_index(drop=True)
+    sub_df['moving average'] = sub_df['fold change'].rolling(window=50).mean()
     source = ColumnDataSource(df)
+    sub_source = ColumnDataSource(sub_df)
     view=CDSView()
+    sub_view=CDSView()
     scatter = figure(title='Volume vs. Log2 Fold Change', x_axis_type='log', y_axis_type='linear',
                         x_axis_label='Volume', y_axis_label='Log2 Fold Change', output_backend="webgl")
     scatter.scatter('Volume', 'fold change', source=source,view=view, color='gray', alpha=1,
                     legend_label='Volume vs. Log2 Fold Change')
-    scatter.line('Volume', 'moving average', source=source,view=view, color='red', legend_label='Moving Average')
+    scatter.line('Volume', 'moving average', source=sub_source,view=sub_view, color='red', legend_label='Moving Average')
     hover = HoverTool(tooltips=[('Volume', '@Volume'), ('Fold Change', '@{fold change}'), ('Droplet ID', '@Droplet')], renderers=[scatter.renderers[0]])
     scatter.add_tools(hover)
     return scatter
@@ -318,15 +320,24 @@ def normalize_growth_curves(data_dict):
     return row(p1, p2)
 def last_4_hours_average(chip):
     last_4_hours = {droplet_id: df[df['time'] > 20].reset_index(drop=True) for droplet_id, df in chip.items()}
-    average_counts = [df['Count'].mean() for df in last_4_hours.values()]
+    average_counts = np.array([df['Count'].mean() for df in last_4_hours.values()])
+    min_average_count = min(value for value in average_counts if value > 0) * 0.9
+    average_counts = np.where(average_counts == 0, min_average_count, average_counts)
     droplet_sizes = [df['Volume'].iloc[0] for df in chip.values()]
     droplet_ids = [df['Droplet'].iloc[0] for df in chip.values()]
-    source = ColumnDataSource(data={'Volume': droplet_sizes, 'Average Count': average_counts, 'Droplet': droplet_ids})
+    data = pd.DataFrame({'Volume': droplet_sizes, 'Average Count': average_counts, 'Droplet': droplet_ids})
+    data=data.sort_values(by='Volume').reset_index(drop=True)
+    sub_data=data[data['Average Count']>data['Average Count'].min()].reset_index(drop=True)
+    sub_data['moving average'] = sub_data['Average Count'].rolling(window=50).mean().reset_index(drop=True)
+    source = ColumnDataSource(data)
     view = CDSView()
+    sub_source=ColumnDataSource(sub_data)
+    sub_view=CDSView()
     scatter = figure(title='Average Number of Bacteria in Last 4 Hours vs. Droplet Size', x_axis_type='log',
                      y_axis_type='log', x_axis_label='Volume', y_axis_label='Average Count', output_backend="webgl")
     scatter.scatter('Volume', 'Average Count', source=source, view=view, color='gray', alpha=1,
                     legend_label='Average Count')
+    scatter.line('Volume', 'moving average', source=sub_source, view=sub_view, color='red', legend_label='moving average')
     hover = HoverTool(tooltips=[('Volume', '@Volume'), ('Average Count', '@{Average Count}'),('Droplet ID', '@Droplet')], renderers=[scatter.renderers[0]])
     scatter.add_tools(hover)
     return scatter
@@ -424,81 +435,184 @@ def death_rate_by_droplets(data_dict):
     hover = HoverTool(tooltips=[('Log 10 Volume', '@Volume'), ('Max Death Rate', '@{Max Death Rate}'), ('Droplet', '@Droplet')],renderers=scatter_renderers)
     p.add_tools(hover)
     return p
-def distance_Vs_Volume(df):
-    df=df.copy()
-    df.loc[:, 'Bins_vol'] = df['log_Volume'].apply(math.floor)
-    df.loc[:, 'Bins_vol_txt'] = df['log_Volume'].apply(math.ceil)
-    df.rename(columns={'Bins_vol': 'lower bin', 'Bins_vol_txt': 'upper bin'}, inplace=True)
-    df['upper bin'] = df['log_Volume'].apply(math.ceil)
-    df['lower bin'] = df['log_Volume'].apply(math.floor)
-    p = figure(title='Distance to Center vs. Volume', x_axis_label='Log 10 Volume', y_axis_label='Distance to Center', output_backend="webgl")
-    grouped = df.groupby(['lower bin', 'upper bin'])
-    colors = Category20[20]
-    scatter_renderers = []
-    for index, ((lower_bin, upper_bin), group) in enumerate(grouped):
-        color = colors[index % len(colors)]  # Cycle through the palette if more bins than colors
-        source = ColumnDataSource(group)
-        view = CDSView()
-        q1 = group['distance_to_center'].quantile(0.25)
-        q2 = group['distance_to_center'].quantile(0.5)  # Median
-        q3 = group['distance_to_center'].quantile(0.75)
-        iqr = q3 - q1
-        upper_whisker = q3 + 1.5 * iqr
-        lower_whisker = q1 - 1.5 * iqr
-        upper_whisker = group['distance_to_center'][group['distance_to_center'] <= upper_whisker].max()
-        lower_whisker = group['distance_to_center'][group['distance_to_center'] >= lower_whisker].min()
-        p.quad(top=[q3], bottom=[q1], left=[lower_bin], right=[upper_bin], fill_color=color, alpha=0.3)
-        p.segment(x0=[lower_bin], y0=[q2], x1=[upper_bin], y1=[q2], line_color="black")
-        p.segment(x0=[(lower_bin + upper_bin) / 2], y0=[upper_whisker], x1=[(lower_bin + upper_bin) / 2], y1=[q3],
-                  line_color="black")
-        p.segment(x0=[(lower_bin + upper_bin) / 2], y0=[lower_whisker], x1=[(lower_bin + upper_bin) / 2], y1=[q1],
-                  line_color="black")
-        p.line(x=[lower_bin, upper_bin], y=[upper_whisker, upper_whisker], line_color="black")
-        p.line(x=[lower_bin, upper_bin], y=[lower_whisker, lower_whisker], line_color="black")
-        scatter=p.scatter(x='log_Volume', y='distance_to_center', source=source, view=view, color=color)
-        scatter_renderers.append(scatter)
-    p.tools = [tool for tool in p.tools if not isinstance(tool, HoverTool)]
-    hover = HoverTool(tooltips=[('Log 10 Volume', '@log_Volume'), ('Distance to Center', '@distance_to_center'),('Droplet','@Droplet')],renderers=scatter_renderers)
+
+
+def distance_Vs_Volume_histogram(df):
+    df = df.copy()
+    distance_bins = [0, 1000, 2000, 3000, float('inf')]
+    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4055"]
+    volume_bins = [3, 4, 5, 6, 7, 8]
+    volume_labels = ["3-4", "4-5", "5-6", "6-7", "7-8"]
+    df['distance_bin'] = pd.cut(df['distance_to_center'], bins=distance_bins, labels=distance_labels, right=False)
+    df['volume_bin'] = pd.cut(df['log_Volume'], bins=volume_bins, labels=volume_labels, right=False)
+    grouped = df.groupby(['distance_bin', 'volume_bin'], observed=True).size().unstack(fill_value=0)
+    source_data = {'distance_bin': distance_labels}
+    for volume_label in volume_labels:
+        source_data[volume_label] = grouped.get(volume_label, [0] * len(distance_labels))
+    source = ColumnDataSource(data=source_data)
+
+    # Create the plot
+    colors = Category20[len(volume_labels)]  # Colors for the stacked bars
+    p = figure(x_range=distance_labels, title="Stacked Histogram: Distance vs. Log Volume",
+               toolbar_location=None, tools="")
+
+    # Add stacked bars
+    p.vbar_stack(volume_labels, x='distance_bin', width=0.9, color=colors, source=source,
+                 legend_label=volume_labels)
+
+    # Adjust the plot
+    p.y_range.start = 0
+    p.xgrid.grid_line_color = None
+    p.axis.major_label_text_font_size = "10pt"
+    p.xaxis.axis_label = "Distance from Center"
+    p.yaxis.axis_label = "Frequency"
+    p.legend.title = "Log Volume"
+    p.legend.label_text_font_size = "10pt"
+    p.legend.orientation = "horizontal"
+    p.legend.location = "top_center"
+
+    hover = HoverTool()
+    hover.tooltips = [("Distance Bin", "@distance_bin"), ("Volume Bin", "$name"), ("Count", "@$name")]
     p.add_tools(hover)
     return p
-def distance_Vs_occupide(df):
+
+def distance_Vs_occupide_histogram(df):
     df=df.copy()
     df= df[df['Count'] > 0]
+    distance_bins = [0, 1000, 2000, 3000, float('inf')]
+    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4055"]
+    volume_bins = [3, 4, 5, 6, 7, 8]
+    volume_labels = ["3-4", "4-5", "5-6", "6-7", "7-8"]
+    df['distance_bin'] = pd.cut(df['distance_to_center'], bins=distance_bins, labels=distance_labels, right=False)
+    df['volume_bin'] = pd.cut(df['log_Volume'], bins=volume_bins, labels=volume_labels, right=False)
+    grouped = df.groupby(['distance_bin', 'volume_bin'], observed=True).size().unstack(fill_value=0)
+    source_data = {'distance_bin': distance_labels}
+    for volume_label in volume_labels:
+        source_data[volume_label] = grouped.get(volume_label, [0] * len(distance_labels))
+    source = ColumnDataSource(data=source_data)
+    colors = Category20[len(volume_labels)]  # Colors for the stacked bars
+    p = figure(x_range=distance_labels, title="Stacked Histogram: Distance vs. Log Volume",
+               toolbar_location=None, tools="")
+    p.vbar_stack(volume_labels, x='distance_bin', width=0.9, color=colors, source=source,
+                 legend_label=volume_labels)
+    p.y_range.start = 0
+    p.xgrid.grid_line_color = None
+    p.axis.major_label_text_font_size = "10pt"
+    p.xaxis.axis_label = "Distance from Center"
+    p.yaxis.axis_label = "Frequency"
+    p.legend.title = "Log Volume"
+    p.legend.label_text_font_size = "10pt"
+    p.legend.orientation = "horizontal"
+    p.legend.location = "top_center"
+
+    hover = HoverTool()
+    hover.tooltips = [("Distance Bin", "@distance_bin"), ("Volume Bin", "$name"), ("Count", "@$name")]
+    p.add_tools(hover)
+    return p
+def distance_Vs_Volume_circle(df):
+    df = df.copy()
     df.loc[:, 'Bins_vol'] = df['log_Volume'].apply(math.floor)
     df.loc[:, 'Bins_vol_txt'] = df['log_Volume'].apply(math.ceil)
     df.rename(columns={'Bins_vol': 'lower bin', 'Bins_vol_txt': 'upper bin'}, inplace=True)
     df['upper bin'] = df['log_Volume'].apply(math.ceil)
     df['lower bin'] = df['log_Volume'].apply(math.floor)
-    p = figure(title='Distance to Center vs. occupied droplets', x_axis_label='Log 10 Volume', y_axis_label='Distance to Center', output_backend="webgl")
+    p = figure(title='Distance to Center vs. Volume', x_axis_label='Log 10 Volume', y_axis_label='Distance to Center',
+               output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110))
+    circle_center_x = 4055  # Assuming the center is at (4055, 4055)
+    circle_center_y = 4055
+    circle_radius = 4055 * 1.04  # Assuming the radius is 4055
+    p.circle(x=[circle_center_x], y=[circle_center_y], radius=circle_radius, line_color="black", fill_color=None,
+             alpha=0.5)
+    p.circle(x=[circle_center_x], y=[circle_center_y], radius=3000, line_color="black", fill_color=None,alpha=0.5)
+    label = Label(x=circle_center_x, y=circle_center_y+3000, text='3000+', text_align='center',
+                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+    p.add_layout(label)
+    p.circle(x=[circle_center_x], y=[circle_center_y], radius=2000, line_color="black", fill_color=None,alpha=0.5)
+    label = Label(x=circle_center_x, y=circle_center_y+2000, text='2000-3000', text_align='center',
+                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+    p.add_layout(label)
+    p.circle(x=[circle_center_x], y=[circle_center_y], radius=1000, line_color="black", fill_color=None,alpha=0.5)
+    label = Label(x=circle_center_x, y=circle_center_y+1000, text='1000-2000', text_align='center',
+                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+    p.add_layout(label)
+    label = Label(x=circle_center_x, y=circle_center_y, text='0-1000', text_align='center',
+                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+    p.add_layout(label)
     grouped = df.groupby(['lower bin', 'upper bin'])
     colors = Category20[20]
     scatter_renderers = []
+    legend_items = []
+
     for index, ((lower_bin, upper_bin), group) in enumerate(grouped):
-        color = colors[index % len(colors)]  # Cycle through the palette if more bins than colors
+        color = colors[index % len(colors)]
         source = ColumnDataSource(group)
         view = CDSView()
-        q1 = group['distance_to_center'].quantile(0.25)
-        q2 = group['distance_to_center'].quantile(0.5)  # Median
-        q3 = group['distance_to_center'].quantile(0.75)
-        iqr = q3 - q1
-        upper_whisker = q3 + 1.5 * iqr
-        lower_whisker = q1 - 1.5 * iqr
-        upper_whisker = group['distance_to_center'][group['distance_to_center'] <= upper_whisker].max()
-        lower_whisker = group['distance_to_center'][group['distance_to_center'] >= lower_whisker].min()
-        p.quad(top=[q3], bottom=[q1], left=[lower_bin], right=[upper_bin], fill_color=color, alpha=0.3)
-        p.segment(x0=[lower_bin], y0=[q2], x1=[upper_bin], y1=[q2], line_color="black")
-        p.segment(x0=[(lower_bin + upper_bin) / 2], y0=[upper_whisker], x1=[(lower_bin + upper_bin) / 2], y1=[q3],
-                  line_color="black")
-        p.segment(x0=[(lower_bin + upper_bin) / 2], y0=[lower_whisker], x1=[(lower_bin + upper_bin) / 2], y1=[q1],
-                  line_color="black")
-        p.line(x=[lower_bin, upper_bin], y=[upper_whisker, upper_whisker], line_color="black")
-        p.line(x=[lower_bin, upper_bin], y=[lower_whisker, lower_whisker], line_color="black")
-        scatter=p.scatter(x='log_Volume', y='distance_to_center', source=source, view=view, color=color)
+        scatter = p.scatter(x='X', y='Y', source=source, view=view, color=color)
         scatter_renderers.append(scatter)
+        legend_item = LegendItem(label=f'Bin {lower_bin}-{upper_bin}', renderers=[scatter])
+        legend_items.append(legend_item)
+
+    legend = Legend(items=legend_items, location='top_left')
+    p.add_layout(legend)
+    p.legend.click_policy = 'hide'
     p.tools = [tool for tool in p.tools if not isinstance(tool, HoverTool)]
-    hover = HoverTool(tooltips=[('Log 10 Volume', '@log_Volume'), ('Distance to Center', '@distance_to_center'),('Droplet','@Droplet')],renderers=scatter_renderers)
+    hover = HoverTool(tooltips=[('Log Volume', '@log_Volume'), ('Droplet', '@Droplet')], renderers=scatter_renderers)
     p.add_tools(hover)
     return p
+
+def distance_Vs_occupide_circle(df):
+    df = df.copy()
+    df = df[df['Count'] > 0]
+    df.loc[:, 'Bins_vol'] = df['log_Volume'].apply(math.floor)
+    df.loc[:, 'Bins_vol_txt'] = df['log_Volume'].apply(math.ceil)
+    df.rename(columns={'Bins_vol': 'lower bin', 'Bins_vol_txt': 'upper bin'}, inplace=True)
+    df['upper bin'] = df['log_Volume'].apply(math.ceil)
+    df['lower bin'] = df['log_Volume'].apply(math.floor)
+    p = figure(title='Distance to Center vs. Volume', x_axis_label='Log 10 Volume', y_axis_label='Distance to Center',
+               output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110))
+    circle_center_x = 4055  # Assuming the center is at (4055, 4055)
+    circle_center_y = 4055
+    circle_radius = 4055 * 1.04  # Assuming the radius is 4055
+    p.circle(x=[circle_center_x], y=[circle_center_y], radius=circle_radius, line_color="black", fill_color=None,
+             alpha=0.5)
+    p.circle(x=[circle_center_x], y=[circle_center_y], radius=3000, line_color="black", fill_color=None,alpha=0.5)
+    label = Label(x=circle_center_x, y=circle_center_y+3000, text='3000+', text_align='center',
+                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+    p.add_layout(label)
+    p.circle(x=[circle_center_x], y=[circle_center_y], radius=2000, line_color="black", fill_color=None,alpha=0.5)
+    label = Label(x=circle_center_x, y=circle_center_y+2000, text='2000-3000', text_align='center',
+                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+    p.add_layout(label)
+    p.circle(x=[circle_center_x], y=[circle_center_y], radius=1000, line_color="black", fill_color=None,alpha=0.5)
+    label = Label(x=circle_center_x, y=circle_center_y+1000, text='1000-2000', text_align='center',
+                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+    p.add_layout(label)
+    label = Label(x=circle_center_x, y=circle_center_y, text='0-1000', text_align='center',
+                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+    p.add_layout(label)
+    grouped = df.groupby(['lower bin', 'upper bin'])
+    colors = Category20[20]
+    scatter_renderers = []
+    legend_items = []
+
+    for index, ((lower_bin, upper_bin), group) in enumerate(grouped):
+        color = colors[index % len(colors)]
+        source = ColumnDataSource(group)
+        view = CDSView()
+        scatter = p.scatter(x='X', y='Y', source=source, view=view, color=color)
+        scatter_renderers.append(scatter)
+        legend_item = LegendItem(label=f'Bin {lower_bin}-{upper_bin}', renderers=[scatter])
+        legend_items.append(legend_item)
+
+    legend = Legend(items=legend_items, location='top_left')
+    p.add_layout(legend)
+    p.legend.click_policy = 'hide'
+    p.tools = [tool for tool in p.tools if not isinstance(tool, HoverTool)]
+    hover = HoverTool(tooltips=[('Log Volume', '@log_Volume'), ('Droplet', '@Droplet')], renderers=scatter_renderers)
+    p.add_tools(hover)
+    return p
+
+
 def deathrate_volume_by_distance(data_dict):
     distances = []
     max_death_rate = []
@@ -651,13 +765,15 @@ def dashborde():
     layouts={}
     for key, value in initial_data.items():
         chip, experiment_time, time_steps = get_slice(chips, key)
-        layout = column(stats_box(value, experiment_time, time_steps, key),
+        layout = column(
+                        stats_box(value, experiment_time, time_steps, key),
                         row(droplet_histogram(value), N0_Vs_Volume(value)),
                         row(Initial_Density_Vs_Volume(value), Fraction_in_each_bin(chip, experiment_time)),
                         growth_curves(chip),normalize_growth_curves(chip),
                         row(fold_change(chip), last_4_hours_average(chip)),
                         row(death_rate_by_droplets(chip), death_rate_by_bins(chip)),
-                        row(distance_Vs_Volume(value),distance_Vs_occupide(value)),
+                        row(distance_Vs_Volume_histogram(value),distance_Vs_occupide_histogram(value)),
+                        row(distance_Vs_Volume_circle(value),distance_Vs_occupide_circle(value)),
                         row(deathrate_by_distance(chip),deathrate_volume_by_distance(chip)),
                         row(foldchange_in_each_bin_per_distance(chip))
                         )
