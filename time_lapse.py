@@ -39,15 +39,13 @@ def get_roi_files(zip_ref, arr):
 def process_image(args):
     image_path, coords, x, y, w, h, droplet_name = args
     with Image.open(image_path) as img:
-        cropped_img = img.crop((x*1.05, y*1.05, (x + w)*1.05, (y + h)*1.05))
+        cropped_img = img.crop((x, y, x + w, y + h))
         cropped_img = np.array(cropped_img)
         cropped_img = cv2.cvtColor(cropped_img, cv2.COLOR_RGB2BGR)  # Convert RGB to BGR
-    # Draw the ROI line on the image
-    for i in range(len(coords) - 1):
-        cv2.line(cropped_img, (coords[i][0] - x, coords[i][1] - y),
-                 (coords[i + 1][0] - x, coords[i + 1][1] - y), (0, 255, 0), 1)  # Green color, thickness 3
-    cv2.line(cropped_img, (coords[-1][0] - x, coords[-1][1] - y), (coords[0][0] - x, coords[0][1] - y),
-             (0, 255, 0), 1)  # Close the polygon
+    adjusted_coords = [(coord[0] - x, coord[1] - y) for coord in coords]
+    for i in range(len(adjusted_coords) - 1):
+        cv2.line(cropped_img, adjusted_coords[i], adjusted_coords[i + 1], (0, 255, 0), 1)  # Green color, thickness 1
+    cv2.line(cropped_img, adjusted_coords[-1], adjusted_coords[0], (0, 255, 0), 1)  # Close the polygon
     # Resize the image
     height, width = cropped_img.shape[:2]
     max_dim = max(height, width)

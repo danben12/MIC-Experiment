@@ -4,20 +4,18 @@ import numpy as np
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename
 from bokeh.io import output_file
-from bokeh.models import Div, HoverTool,TapTool, ColorBar, LogTicker, LinearColorMapper, BasicTicker, Legend, LegendItem,BoxAnnotation, Span, Whisker,Label,Spacer
-from bokeh.layouts import column, row, layout
+from bokeh.models import Div, HoverTool,TapTool, ColorBar,CheckboxGroup, LogTicker, LinearColorMapper, BasicTicker, Legend, LegendItem,BoxAnnotation, Span, Whisker,Label,Spacer,Circle
+from bokeh.layouts import column, row
 from bokeh.palettes import Category20,RGB
-from bokeh.plotting import figure, show
+from bokeh.plotting import figure, show, markers
 from bokeh.models import ColumnDataSource, CDSView,Select,CustomJS
-from numba.cpython.unsafe.numbers import viewer
-from scipy.stats import linregress, alpha
+from matplotlib.pyplot import legend
+from networkx.algorithms.bipartite import density
+from scipy.constants import value
+from scipy.stats import linregress
 from bokeh.transform import linear_cmap
-import plotly.graph_objects as go
 from matplotlib import cm
-
-
-
-
+from scipy.spatial import KDTree
 
 def read_data():
     Tk().withdraw()
@@ -155,34 +153,63 @@ def N0_Vs_Volume(df):
     return combined_plot
 
 
-def Initial_Density_Vs_Volume(df):
+def Initial_Density_Vs_Volume(df, initial_density):
     df['initial density'] = df['Count'] / df['Volume']
     source = ColumnDataSource(df)
     view = CDSView()
+
+    # Create the scatter plot
     scatter = figure(title='Initial Density vs. Volume', x_axis_type='log', y_axis_type='log',
                      x_axis_label='Volume', y_axis_label='Initial Density', output_backend="webgl")
-    scatter_renderer = scatter.scatter('Volume', 'initial density', source=source, view=view, color='gray', alpha=1,
-                                       legend_label='Initial Density vs. Volume')
+    scatter_renderer = scatter.scatter('Volume', 'initial density', source=source, view=view, color='gray', alpha=1)
+
+    # Hover tool
     hover = HoverTool(
         tooltips=[('Volume', '@Volume'), ('Initial Density', '@{initial density}'), ('Droplet ID', '@Droplet')],
         renderers=[scatter_renderer])
     scatter.add_tools(hover)
 
-    # Add TapTool with CustomJS callback
-    taptool = TapTool(callback=CustomJS(args=dict(source=source), code="""
-        const selected_index = source.selected.indices[0];
-        if (selected_index != null) {
-            const data = source.data;
-            const url = data['Google Drive Link'][selected_index];
-            window.open(url, "_blank");
-        }
-    """))
-    scatter.add_tools(taptool)
+    # Rolling mean of log-transformed initial density
+    filtered_sorted_df = df[df['initial density'] > 0].sort_values(by='Volume').reset_index()
+    log_density = np.log10(filtered_sorted_df['initial density'])
+    rolling_mean = log_density.rolling(window=50).mean()
+    scatter.line(filtered_sorted_df['Volume'], 10 ** rolling_mean, color='red')  # Plot rolling mean
 
-    filtered_sorted_df = df[df['initial density'] > 0].sort_values(by='Volume')
-    rolling_mean = np.log10(filtered_sorted_df['initial density']).rolling(window=50).mean()
-    scatter.line(filtered_sorted_df['Volume'], 10 ** rolling_mean, color='red', legend_label='Rolling Mean')
-    return scatter
+    # Initial density line
+    scatter.line([min(df['Volume']), max(df['Volume'])], [initial_density, initial_density], color='green')
+
+    # Improved method to find convergence
+    convergence_window = 10  # Number of points to check for stability
+    tolerance = 0.05  # Allowable difference ratio
+
+    differences = np.abs(1 - (10 ** rolling_mean / initial_density))
+    for i in range(len(differences) - convergence_window):
+        # Check for stability: average of differences in the window <= tolerance
+        window_mean_diff = differences.iloc[i:i + convergence_window].mean()
+        if window_mean_diff <= tolerance:
+            closest_index = i + convergence_window // 2  # Center of the stable window
+            break
+        else:
+            closest_index = differences.idxmin()  # Fallback to the minimum difference if no stable region
+
+    # Place the blue vertical line
+    closest_point = filtered_sorted_df.loc[closest_index]
+    closest_volume = closest_point['Volume']
+    vline = Span(location=closest_volume, dimension='height', line_color='blue', line_dash='dashed', line_width=2)
+    scatter.add_layout(vline)
+
+    # Invisible line for legend
+    invisible_line = scatter.line([0], [0], color='blue', line_dash='dashed', line_width=2)
+    legend = Legend(items=[
+        LegendItem(label='Initial density vs. Volume', renderers=[scatter.renderers[0]]),
+        LegendItem(label='Rolling Mean', renderers=[scatter.renderers[1]]),
+        LegendItem(label='Initial Density', renderers=[scatter.renderers[2]]),
+        LegendItem(label='Vc', renderers=[invisible_line])
+    ], location='top_right')
+    scatter.add_layout(legend)
+
+    return scatter, closest_volume
+
 
 def Fraction_in_each_bin(dic, time):
     combined_df = pd.concat(dic.values(), ignore_index=True)
@@ -195,7 +222,7 @@ def Fraction_in_each_bin(dic, time):
     bins = bins.unstack().fillna(0)
     bins['start fraction'] = bins[0] / start_total * 100
     bins['end fraction'] = bins[time] / end_total * 100
-    p = figure(title='Fraction of Population in Each Bin at Start and End of Simulation', x_axis_label='Bin Range', y_axis_label='Fraction of Population')
+    p = figure(title='Fraction of Population in Each Bin at Start and End of Simulation', x_axis_label='Bin Range', y_axis_label='Fraction of Population', output_backend="webgl",y_range=(0,100))
     bin_centers = [(start_bin + end_bin) / 2 for start_bin, end_bin in bins.index]
     bin_width = 0.4
     p.vbar(x=[bin_center - bin_width / 2 for bin_center in bin_centers], top=bins['start fraction'], width=bin_width, color='blue', legend_label='Start')
@@ -360,7 +387,7 @@ def normalize_growth_curves(data_dict):
     p2.legend.click_policy = 'hide'
     return row(p1, p2)
 
-def last_4_hours_average(chip):
+def last_4_hours_average(chip, volume):
     last_4_hours = {droplet_id: df[df['time'] > 20].reset_index(drop=True) for droplet_id, df in chip.items()}
     average_counts = np.array([df['Count'].mean() for df in last_4_hours.values()])
     min_average_count = min(value for value in average_counts if value > 0) * 0.9
@@ -370,22 +397,58 @@ def last_4_hours_average(chip):
     google_drive_urls = [df['Google Drive Link'].iloc[0] for df in chip.values()]  # Add URL
     data = pd.DataFrame({'Volume': droplet_sizes, 'Average Count': average_counts, 'Droplet': droplet_ids, 'Google Drive Link': google_drive_urls})
     data = data.sort_values(by='Volume').reset_index(drop=True)
-    sub_data = data[data['Average Count'] > data['Average Count'].min()].reset_index(drop=True)
-    sub_data['moving average'] = sub_data['Average Count'].rolling(window=50).mean().reset_index(drop=True)
+
+    # Split data into two parts based on the volume vertical line
+    data_before = data[data['Volume'] <= volume]
+    data_after = data[data['Volume'] > volume]
+
+    data_before = data_before[data_before['Average Count'] > data_before['Average Count'].min()]
+    data_after = data_after[data_after['Average Count'] > data_after['Average Count'].min()]
+
+    # Perform linear regression on each part
+    if not data_before.empty:
+        slope_before, intercept_before, r_value_before, _, _ = linregress(np.log10(data_before['Volume']), np.log10(data_before['Average Count']))
+        x_values_before = np.linspace(data_before['Volume'].min(), volume, 100)
+        y_values_before = 10 ** (intercept_before + slope_before * np.log10(x_values_before))
+        r_squared_before = r_value_before ** 2
+    else:
+        x_values_before, y_values_before = np.array([]), np.array([])
+        slope_before, r_squared_before = None, None
+
+    if not data_after.empty:
+        slope_after, intercept_after, r_value_after, _, _ = linregress(np.log10(data_after['Volume']), np.log10(data_after['Average Count']))
+        x_values_after = np.linspace(volume, data_after['Volume'].max(), 100)
+        y_values_after = 10 ** (intercept_after + slope_after * np.log10(x_values_after))
+        r_squared_after = r_value_after ** 2
+    else:
+        x_values_after, y_values_after = np.array([]), np.array([])
+        slope_after, r_squared_after = None, None
+
     source = ColumnDataSource(data)
     view = CDSView()
-    sub_source = ColumnDataSource(sub_data)
-    sub_view = CDSView()
     scatter = figure(title='Average Number of Bacteria in Last 4 Hours vs. Droplet Size', x_axis_type='log',
                      y_axis_type='log', x_axis_label='Volume', y_axis_label='Average Count', output_backend="webgl")
-    scatter.scatter('Volume', 'Average Count', source=source, view=view, color='gray', alpha=1,
-                    legend_label='Average Count')
-    scatter.line('Volume', 'moving average', source=sub_source, view=sub_view, color='red', legend_label='moving average')
+    scatter.scatter('Volume', 'Average Count', source=source, view=view, color='gray', alpha=1)
+    regression_before_renderer = None
+    regression_after_renderer = None
+    if x_values_before.any() and y_values_before.any():
+        regression_before_renderer = scatter.line(x_values_before, y_values_before, color='red', legend_label='Regression Before')
+        label_x_before = (x_values_before[0] + x_values_before[-1]) / 2
+        label_y_before = 10 ** (intercept_before + slope_before * np.log10(label_x_before))
+        label_before = Label(x=label_x_before, y=label_y_before, text=f'Slope: {slope_before:.2f}, R²: {r_squared_before:.2f}', text_color='red')
+        scatter.add_layout(label_before)
+    if x_values_after.any() and y_values_after.any():
+        regression_after_renderer = scatter.line(x_values_after, y_values_after, color='blue', legend_label='Regression After')
+        label_x_after = (x_values_after[0] + x_values_after[-1]) / 2
+        label_y_after = 10 ** (intercept_after + slope_after * np.log10(label_x_after))
+        label_after = Label(x=label_x_after, y=label_y_after, text=f'Slope: {slope_after:.2f}, R²: {r_squared_after:.2f}', text_color='blue')
+        scatter.add_layout(label_after)
     hover = HoverTool(tooltips=[('Volume', '@Volume'), ('Average Count', '@{Average Count}'), ('Droplet ID', '@Droplet')],
                       renderers=[scatter.renderers[0]])
     scatter.add_tools(hover)
-
-    # Add TapTool with CustomJS callback
+    vline = Span(location=volume, dimension='height', line_color='blue', line_dash='dashed', line_width=2)
+    scatter.add_layout(vline)
+    invisible_line = scatter.line([0], [0], color='blue', line_dash='dashed', line_width=2)
     taptool = TapTool(callback=CustomJS(args=dict(source=source), code="""
         const selected_index = source.selected.indices[0];
         if (selected_index != null) {
@@ -395,6 +458,16 @@ def last_4_hours_average(chip):
         }
     """))
     scatter.add_tools(taptool)
+    legend_items = [
+        LegendItem(label='Average Count', renderers=[scatter.renderers[0]]),
+        LegendItem(label='Vc', renderers=[invisible_line])
+    ]
+    if regression_before_renderer:
+        legend_items.append(LegendItem(label='Regression Before', renderers=[regression_before_renderer]))
+    if regression_after_renderer:
+        legend_items.append(LegendItem(label='Regression After', renderers=[regression_after_renderer]))
+    legend = Legend(items=legend_items, location='top_right')
+    scatter.add_layout(legend)
     return scatter
 
 def find_droplet_location(df):
@@ -460,11 +533,12 @@ def death_rate_by_bins(dict):
     p.legend.click_policy = 'hide'
     return p
 
+
 def death_rate_by_droplets(data_dict):
     volumes = []
     max_death_rate = []
     droplet_ids = []
-    google_drive_urls = []  # Array to store Google Drive URLs
+    google_drive_urls = []
     for key, value in data_dict.items():
         if value['Count'].iloc[0] == 0:
             continue
@@ -477,75 +551,72 @@ def death_rate_by_droplets(data_dict):
             volumes.append(value['Volume'].iloc[0])
             max_death_rate.append(value['slope'].min())
             droplet_ids.append(key)
-            google_drive_urls.append(value['Google Drive Link'].iloc[0])  # Add URL
-
-    df = pd.DataFrame({'Volume': np.log10(volumes), 'Max Death Rate': max_death_rate, 'Droplet': droplet_ids, 'Google Drive Link': google_drive_urls})
+            google_drive_urls.append(value['Google Drive Link'].iloc[0])
+    df = pd.DataFrame({
+        'Volume': np.log10(volumes),
+        'Max Death Rate': max_death_rate,
+        'Droplet': droplet_ids,
+        'Google Drive Link': google_drive_urls
+    })
     df['upper bin'] = df['Volume'].apply(math.ceil)
     df['lower bin'] = df['Volume'].apply(math.floor)
-    # Calculate the metapopulation over time
+    grouped = df.groupby(['lower bin', 'upper bin'])
+    colors = Category20[20]
+    color_map = {group: colors[i % len(colors)] for i, group in enumerate(grouped.groups.keys())}
+    df['color'] = df.apply(lambda row: color_map[(row['lower bin'], row['upper bin'])], axis=1)
     valid_droplets = [value for key, value in data_dict.items() if value['Count'].iloc[0] != 0]
     metapopulation_df = pd.concat(valid_droplets, ignore_index=True)
     metapopulation = metapopulation_df.groupby('time')['Count'].sum().reset_index(name='metapopulation')
-
-    # Perform a rolling linear regression with a window size of 4
     window_size = 4
     metapopulation['log_metapopulation'] = np.log(metapopulation['metapopulation'])
     metapopulation['slope'] = metapopulation['log_metapopulation'].rolling(window=window_size).apply(
         lambda x: linregress(range(window_size), x)[0]
     )
-
-    # Find the most negative slope
-    most_negative_slope = metapopulation['slope'].min()
-
-    # Use the most negative slope as the death rate of the metapopulation
-    mean_death_rate = most_negative_slope
-
+    mean_death_rate = metapopulation['slope'].min()
     p = figure(title='Death Rate by Droplets', x_axis_label='log 10 Volume', y_axis_label='Max Death Rate',
                output_backend="webgl")
-    grouped = df.groupby(['lower bin', 'upper bin'])
-    colors = Category20[20]
-    scatter_renderers = []
-    for index, ((lower_bin, upper_bin), group) in enumerate(grouped):
-        color = colors[index % len(colors)]  # Cycle through the palette if more bins than colors
-        source = ColumnDataSource(group)
-        view = CDSView()
+    source = ColumnDataSource(df)
+    scatter = p.scatter(x='Volume', y='Max Death Rate', source=source, color='color')
+    for (lower_bin, upper_bin), group in grouped:
+        color = color_map[(lower_bin, upper_bin)]
         q1 = group['Max Death Rate'].quantile(0.25)
-        q2 = group['Max Death Rate'].quantile(0.5)  # Median
         q3 = group['Max Death Rate'].quantile(0.75)
+        median = group['Max Death Rate'].median()
         iqr = q3 - q1
-        upper_whisker = q3 + 1.5 * iqr
-        lower_whisker = q1 - 1.5 * iqr
-        upper_whisker = group['Max Death Rate'][group['Max Death Rate'] <= upper_whisker].max()
-        lower_whisker = group['Max Death Rate'][group['Max Death Rate'] >= lower_whisker].min()
+        upper_whisker = min(group['Max Death Rate'].max(), q3 + 1.5 * iqr)
+        lower_whisker = max(group['Max Death Rate'].min(), q1 - 1.5 * iqr)
         p.quad(top=[q3], bottom=[q1], left=[lower_bin], right=[upper_bin], fill_color=color, alpha=0.3)
-        p.segment(x0=[lower_bin], y0=[q2], x1=[upper_bin], y1=[q2], line_color="black")
+        p.segment(x0=[lower_bin], y0=[median], x1=[upper_bin], y1=[median], line_color="black")
         p.segment(x0=[(lower_bin + upper_bin) / 2], y0=[upper_whisker], x1=[(lower_bin + upper_bin) / 2], y1=[q3],
                   line_color="black")
         p.segment(x0=[(lower_bin + upper_bin) / 2], y0=[lower_whisker], x1=[(lower_bin + upper_bin) / 2], y1=[q1],
                   line_color="black")
         p.line(x=[lower_bin, upper_bin], y=[upper_whisker, upper_whisker], line_color="black")
         p.line(x=[lower_bin, upper_bin], y=[lower_whisker, lower_whisker], line_color="black")
-        scatter = p.scatter(x='Volume', y='Max Death Rate', source=source,view=view, color=color)
-        scatter_renderers.append(scatter)
-        taptool = TapTool(callback=CustomJS(args=dict(source=source), code="""
-            const selected_index = source.selected.indices[0];
-            if (selected_index != null) {
-                const data = source.data;
-                const url = data['Google Drive Link'][selected_index];
-                window.open(url, "_blank");
+    p.line(x=[df['Volume'].min(), df['Volume'].max()], y=[mean_death_rate, mean_death_rate],
+           line_dash='dashed', line_color='black', line_width=2, legend_label='Meta-population Death Rate')
+    tap_tool = TapTool(callback=CustomJS(args=dict(source=source), code="""
+        const selected_index = source.selected.indices[0];
+        if (selected_index != null) {
+            const url = source.data['Google Drive Link'][selected_index];
+            window.open(url, "_blank");
+
+            // Highlight the selected point and shade others
+            for (let i = 0; i < source.data['alpha'].length; i++) {
+                source.data['alpha'][i] = (i === selected_index) ? 1.0 : 0.1;
             }
-        """), renderers=[scatter])
-        p.add_tools(taptool)
-
-
-    # Add dashed line for mean death rate
-    p.line(x=[3, 8], y=[mean_death_rate, mean_death_rate], line_dash='dashed', line_color='black',
-           line_width=2, legend_label='Meta-population Death Rate')
-
-    p.tools = [tool for tool in p.tools if not isinstance(tool, HoverTool)]
+            source.change.emit();
+        }
+    """))
+    p.add_tools(tap_tool)
     hover = HoverTool(
-        tooltips=[('Index', '$index'),('Log 10 Volume', '@Volume'), ('Max Death Rate', '@{Max Death Rate}'), ('Droplet', '@Droplet')],
-        renderers=scatter_renderers)
+        tooltips=[
+            ('Log 10 Volume', '@Volume'),
+            ('Max Death Rate', '@{Max Death Rate}'),
+            ('Droplet', '@Droplet')
+        ],
+        renderers=[scatter]
+    )
     p.add_tools(hover)
     return p
 
@@ -621,132 +692,94 @@ def distance_Vs_occupide_histogram(df):
 
     return p
 
-
 def distance_Vs_Volume_circle(df):
     df = df.copy()
     df['radius'] = (df['Area'] / math.pi) ** 0.5
-    df.loc[:, 'Bins_vol'] = df['log_Volume'].apply(math.floor)
-    df.loc[:, 'Bins_vol_txt'] = df['log_Volume'].apply(math.ceil)
-    df.rename(columns={'Bins_vol': 'lower bin', 'Bins_vol_txt': 'upper bin'}, inplace=True)
-    df['upper bin'] = df['log_Volume'].apply(math.ceil)
     df['lower bin'] = df['log_Volume'].apply(math.floor)
-
+    df['upper bin'] = df['log_Volume'].apply(math.ceil)
     p = figure(title='Distance to Center vs. Volume',
                output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110))
-
-    circle_center_x = 4055  # Assuming the center is at (4055, 4055)
+    circle_center_x = 4055
     circle_center_y = 4055
-    circle_radius = 4055 * 1.04  # Assuming the radius is 4055
-
-    p.circle(x=[circle_center_x], y=[circle_center_y], radius=circle_radius, line_color="black", fill_color=None,
-             alpha=0.5)
-    p.circle(x=[circle_center_x], y=[circle_center_y], radius=3000, line_color="black", fill_color=None, alpha=0.5)
-    label = Label(x=circle_center_x, y=circle_center_y + 3000, text='3000+', text_align='center',
-                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
-    p.add_layout(label)
-    p.circle(x=[circle_center_x], y=[circle_center_y], radius=2000, line_color="black", fill_color=None, alpha=0.5)
-    label = Label(x=circle_center_x, y=circle_center_y + 2000, text='2000-3000', text_align='center',
-                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
-    p.add_layout(label)
-    p.circle(x=[circle_center_x], y=[circle_center_y], radius=1000, line_color="black", fill_color=None, alpha=0.5)
-    label = Label(x=circle_center_x, y=circle_center_y + 1000, text='1000-2000', text_align='center',
-                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
-    p.add_layout(label)
-    label = Label(x=circle_center_x, y=circle_center_y, text='0-1000', text_align='center',
-                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
-    p.add_layout(label)
-
-    grouped = df.groupby(['lower bin', 'upper bin'])
+    radius_values = [1000, 2000, 3000, 4055 * 1.04]
+    labels = ['0-1000', '1000-2000', '2000-3000', '3000+']
+    for i, radius in enumerate(radius_values):
+        p.circle(x=[circle_center_x], y=[circle_center_y], radius=radius,
+                 line_color="black", fill_color=None, alpha=0.5)
+        if i < len(labels):  # Skip labeling for the largest circle
+            label = Label(x=circle_center_x, y=circle_center_y + radius,
+                          text=labels[i], text_align='center',
+                          text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+            p.add_layout(label)
+    legend_items = []
     colors = Category20[20]
     scatter_renderers = []
-    legend_items = []
-
+    grouped = df.groupby(['lower bin', 'upper bin'])
     for index, ((lower_bin, upper_bin), group) in enumerate(grouped):
-        color = colors[index % len(colors)]
+        color = colors[index]
         source = ColumnDataSource(group)
         scatter = p.circle(x='X', y='Y', radius='radius', source=source, color=color, fill_alpha=0.5)
         scatter_renderers.append(scatter)
-        legend_item = LegendItem(label=f'Bin {lower_bin}-{upper_bin}', renderers=[scatter])
-        legend_items.append(legend_item)
-
+        legend_items.append(LegendItem(label=f'Bin {lower_bin}-{upper_bin}', renderers=[scatter]))
     legend = Legend(items=legend_items, location='top_left')
     p.add_layout(legend)
     p.legend.click_policy = 'hide'
-    hover = HoverTool(tooltips=[('Log Volume', '@log_Volume'), ('Droplet', '@Droplet'), ('Radius', '@radius')],
+    hover = HoverTool(tooltips=[('Log Volume', '@log_Volume'),
+                                 ('Droplet', '@Droplet'),
+                                 ('Radius', '@radius')],
                       renderers=scatter_renderers)
     p.add_tools(hover)
-
-    # Add TapTool with CustomJS callback
-    taptool = TapTool(callback=CustomJS(args=dict(source=source), code="""
-        const selected_index = source.selected.indices[0];
-        if (selected_index != null) {
-            const data = source.data;
-            const url = data['Google Drive Link'][selected_index];
-            window.open(url, "_blank");
-        }
-    """))
-    p.add_tools(taptool)
-
     return p
 
 def distance_Vs_occupide_circle(df):
     df = df.copy()
     df = df[df['Count'] > 0]
-    df.loc[:, 'Bins_vol'] = df['log_Volume'].apply(math.floor)
-    df.loc[:, 'Bins_vol_txt'] = df['log_Volume'].apply(math.ceil)
-    df.rename(columns={'Bins_vol': 'lower bin', 'Bins_vol_txt': 'upper bin'}, inplace=True)
-    df['upper bin'] = df['log_Volume'].apply(math.ceil)
+    df['radius'] = (df['Area'] / math.pi) ** 0.5
     df['lower bin'] = df['log_Volume'].apply(math.floor)
+    df['upper bin'] = df['log_Volume'].apply(math.ceil)
     p = figure(title='Distance to Center vs. Volume Occupied',
                output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110))
-    circle_center_x = 4055  # Assuming the center is at (4055, 4055)
+    circle_center_x = 4055
     circle_center_y = 4055
-    circle_radius = 4055 * 1.04  # Assuming the radius is 4055
-    p.circle(x=[circle_center_x], y=[circle_center_y], radius=circle_radius, line_color="black", fill_color=None,
-             alpha=0.5)
-    p.circle(x=[circle_center_x], y=[circle_center_y], radius=3000, line_color="black", fill_color=None, alpha=0.5)
-    label = Label(x=circle_center_x, y=circle_center_y + 3000, text='3000+', text_align='center',
-                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
-    p.add_layout(label)
-    p.circle(x=[circle_center_x], y=[circle_center_y], radius=2000, line_color="black", fill_color=None, alpha=0.5)
-    label = Label(x=circle_center_x, y=circle_center_y + 2000, text='2000-3000', text_align='center',
-                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
-    p.add_layout(label)
-    p.circle(x=[circle_center_x], y=[circle_center_y], radius=1000, line_color="black", fill_color=None, alpha=0.5)
-    label = Label(x=circle_center_x, y=circle_center_y + 1000, text='1000-2000', text_align='center',
-                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
-    p.add_layout(label)
-    label = Label(x=circle_center_x, y=circle_center_y, text='0-1000', text_align='center',
-                  text_baseline='middle', text_font_style='bold', text_font_size='12pt')
-    p.add_layout(label)
-    grouped = df.groupby(['lower bin', 'upper bin'])
-    colors = Category20[20]
-    scatter_renderers = []
+    radius_values = [1000, 2000, 3000, 4055 * 1.04]
+    labels = ['0-1000', '1000-2000', '2000-3000', '3000+']
+    for i, radius in enumerate(radius_values):
+        p.circle(x=[circle_center_x], y=[circle_center_y], radius=radius,
+                 line_color="black", fill_color=None, alpha=0.5)
+        if i < len(labels):  # Skip labeling for the largest circle
+            label = Label(x=circle_center_x, y=circle_center_y + radius,
+                          text=labels[i], text_align='center',
+                          text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+            p.add_layout(label)
     legend_items = []
-
+    grouped = df.groupby(['lower bin', 'upper bin'])
+    scatter_renderers = []
+    colors = Category20[20]
+    sources = []  # List to store all sources
     for index, ((lower_bin, upper_bin), group) in enumerate(grouped):
-        color = colors[index % len(colors)]
+        color = colors[index]
         source = ColumnDataSource(group)
-        view = CDSView()
-        scatter = p.scatter(x='X', y='Y', source=source, view=view, color=color)
+        sources.append(source)  # Add source to the list
+        scatter = p.circle(x='X', y='Y', radius='radius', source=source, color=color, fill_alpha=0.5)
+        legend_items.append(LegendItem(label=f'Bin {lower_bin}-{upper_bin}', renderers=[scatter]))
         scatter_renderers.append(scatter)
-        legend_item = LegendItem(label=f'Bin {lower_bin}-{upper_bin}', renderers=[scatter])
-        legend_items.append(legend_item)
-
     legend = Legend(items=legend_items, location='top_left')
     p.add_layout(legend)
     p.legend.click_policy = 'hide'
-    p.tools = [tool for tool in p.tools if not isinstance(tool, HoverTool)]
-    hover = HoverTool(tooltips=[('Log Volume', '@log_Volume'), ('Droplet', '@Droplet')], renderers=scatter_renderers)
+    hover = HoverTool(tooltips=[('Log Volume', '@log_Volume'),
+                                 ('Droplet', '@Droplet'),
+                                 ('Radius', '@radius')],
+                      renderers=scatter_renderers)
     p.add_tools(hover)
-
-    # Add TapTool with CustomJS callback
-    taptool = TapTool(callback=CustomJS(args=dict(source=source), code="""
-        const selected_index = source.selected.indices[0];
-        if (selected_index != null) {
-            const data = source.data;
-            const url = data['Google Drive Link'][selected_index];
-            window.open(url, "_blank");
+    taptool = TapTool(callback=CustomJS(args=dict(sources=sources), code="""
+        for (let source of sources) {
+            const selected_index = source.selected.indices[0];
+            if (selected_index != null) {
+                const data = source.data;
+                const url = data['Google Drive Link'][selected_index];
+                window.open(url, "_blank");
+                break;  // Open the first selected link and exit the loop
+            }
         }
     """))
     p.add_tools(taptool)
@@ -759,6 +792,7 @@ def distance_Vs_Volume_colored_by_death_rate(df, data_dict):
     df['log_Volume'] = np.log10(df['Volume'])
     df['lower bin'] = df['log_Volume'].apply(math.floor)
     df['upper bin'] = df['log_Volume'].apply(math.ceil)
+    df['radius'] = (df['Area'] / math.pi) ** 0.5
     max_death_rate = []
     droplet_ids = []
     for key, value in data_dict.items():
@@ -776,8 +810,8 @@ def distance_Vs_Volume_colored_by_death_rate(df, data_dict):
     death_rates.dropna(subset=['Max Death Rate'], inplace=True)  # Drop rows with NaN values
     df = pd.merge(df, death_rates, on='Droplet')
     jet_palette = [RGB(*[int(255 * c) for c in cm.jet(i)[:3]]).to_hex() for i in range(256)]
-    color_mapper = LinearColorMapper(palette=jet_palette, low=df['Max Death Rate'].min(),
-                                     high=df['Max Death Rate'].max())
+    color_mapper = LinearColorMapper(palette=jet_palette, low=-2,
+                                     high=2)
     p = figure(
         title='Distance to Center vs. Volume Colored by Death Rate',
         match_aspect=True,
@@ -787,25 +821,31 @@ def distance_Vs_Volume_colored_by_death_rate(df, data_dict):
     p.yaxis.axis_label = "Y"
     circle_center_x = 4055
     circle_center_y = 4055
-    for radius in [4055, 3000, 2000, 1000]:
+    for radius in [4055*1.04, 3000, 2000, 1000]:
         p.circle(x=[circle_center_x], y=[circle_center_y], radius=radius, line_color="black", fill_color=None,
                  alpha=0.5)
-        label_text = f'{radius - 1000}-{radius}' if radius != 4055 else '3000+'
+        label_text = f'{radius - 1000}-{radius}' if radius < 4055 else '3000+'
         label = Label(x=circle_center_x, y=circle_center_y + (radius - 1000) * 1.05, text=label_text, text_align='center',
                       text_baseline='middle', text_font_style='bold', text_font_size='12pt')
         p.add_layout(label)
     grouped = df.groupby(['lower bin', 'upper bin'])
     scatter_renderers = []
-    legend_items = []
+    sources = []
+    checkbox_labels = []
     for (lower_bin, upper_bin), group in grouped:
         source = ColumnDataSource(group)
-        scatter = p.scatter(x='X', y='Y', source=source, color={'field': 'Max Death Rate', 'transform': color_mapper})
+        sources.append(source)
+        scatter = p.circle(x='X', y='Y',radius='radius', source=source, color={'field': 'Max Death Rate', 'transform': color_mapper}, fill_alpha=0.5)
         scatter_renderers.append(scatter)
-        legend_item = LegendItem(label=f'Bin {lower_bin}-{upper_bin}', renderers=[scatter])
-        legend_items.append(legend_item)
-    legend = Legend(items=legend_items, location='top_left')
-    p.add_layout(legend)
-    p.legend.click_policy = 'hide'
+        checkbox_labels.append(f'Bin {lower_bin}-{upper_bin}')
+    checkbox_group = CheckboxGroup(labels=checkbox_labels, active=list(range(len(checkbox_labels))))
+    checkbox_group.js_on_change('active',
+                                CustomJS(args=dict(scatter_renderers=scatter_renderers, checkbox_group=checkbox_group),
+                                         code="""
+        for (let i = 0; i < scatter_renderers.length; i++) {
+            scatter_renderers[i].visible = checkbox_group.active.includes(i);
+        }
+    """))
     hover = HoverTool(tooltips=[('Log Volume', '@log_Volume'), ('Death Rate', '@{Max Death Rate}'), ('Droplet', '@Droplet')],
                       renderers=scatter_renderers)
     p.add_tools(hover)
@@ -813,177 +853,201 @@ def distance_Vs_Volume_colored_by_death_rate(df, data_dict):
     p.add_layout(color_bar, 'right')
 
     # Add TapTool with CustomJS callback
-    taptool = TapTool(callback=CustomJS(args=dict(source=source), code="""
-        const selected_index = source.selected.indices[0];
-        if (selected_index != null) {
-            const data = source.data;
-            const url = data['Google Drive Link'][selected_index];
-            window.open(url, "_blank");
+    taptool = TapTool(callback=CustomJS(args=dict(sources=sources), code="""
+        for (let source of sources) {
+            const selected_index = source.selected.indices[0];
+            if (selected_index != null) {
+                const data = source.data;
+                const url = data['Google Drive Link'][selected_index];
+                window.open(url, "_blank");
+                break;  // Open the first selected link and exit the loop
+            }
         }
     """))
     p.add_tools(taptool)
 
-    layout_config = row(p, sizing_mode='fixed', width=800, height=600)
+    layout_config = row(checkbox_group,p, sizing_mode='fixed', width=800, height=600)
     return layout_config
 
+def distance_Vs_Volume_colored_by_fold_change(df, data_dict):
+    df = df.copy()
+    df['log_Volume'] = np.log10(df['Volume'])
+    df['lower bin'] = df['log_Volume'].apply(math.floor)
+    df['upper bin'] = df['log_Volume'].apply(math.ceil)
+    df['radius'] = (df['Area'] / math.pi) ** 0.5
+    fold_change = np.array([])
+    Volume = np.array([])
+    droplet_id = np.array([])
+    min_fc = 1
+    for key, value in data_dict.items():
+        if value['Count'].iloc[0] == 0:
+            continue
+        else:
+            if value['Count'].iloc[-4:].mean() == 0:
+                fold_change = np.append(fold_change, np.nan)
+                Volume = np.append(Volume, value['Volume'].iloc[0])
+                droplet_id = np.append(droplet_id, value['Droplet'].iloc[0])
+            else:
+                fold_change = np.append(fold_change, value['Count'].iloc[-4:].mean() / value['Count'].iloc[0])
+                Volume = np.append(Volume, value['Volume'].iloc[0])
+                droplet_id = np.append(droplet_id, value['Droplet'].iloc[0])
+                if value['Count'].iloc[-4:].mean() / value['Count'].iloc[0] < min_fc:
+                    min_fc = value['Count'].iloc[-4:].mean() / value['Count'].iloc[0]
+    min_fc = min_fc * 0.9
+    fold_change = np.where(np.isnan(fold_change), min_fc, fold_change)
+    fold_change = np.log2(fold_change)
+    fold_changes = pd.DataFrame({'Volume': Volume, 'fold change': fold_change, 'Droplet': droplet_id})
+    df = pd.merge(df, fold_changes, on='Droplet')
+    jet_palette = [RGB(*[int(255 * c) for c in cm.jet(i)[:3]]).to_hex() for i in range(256)]
+    color_mapper = LinearColorMapper(palette=jet_palette, low=-10,
+                                     high=10)
+    p = figure(
+        title='Distance to Center vs. Volume Colored by Fold Change',
+        match_aspect=True,
+        output_backend="webgl", width=800, height=600
+    )
+    p.xaxis.axis_label = "X"
+    p.yaxis.axis_label = "Y"
+    circle_center_x = 4055
+    circle_center_y = 4055
+    for radius in [4055*1.04, 3000, 2000, 1000]:
+        p.circle(x=[circle_center_x], y=[circle_center_y], radius=radius, line_color="black", fill_color=None,
+                 alpha=0.5)
+        label_text = f'{radius - 1000}-{radius}' if radius < 4055 else '3000+'
+        label = Label(x=circle_center_x, y=circle_center_y + (radius - 1000) * 1.05, text=label_text, text_align='center',
+                      text_baseline='middle', text_font_style='bold', text_font_size='12pt')
+        p.add_layout(label)
+    grouped = df.groupby(['lower bin', 'upper bin'])
+    scatter_renderers = []
+    checkbox_labels = []
+    sources = []
+    for (lower_bin, upper_bin), group in grouped:
+        source = ColumnDataSource(group)
+        sources.append(source)  # Add source to the list
+        scatter = p.circle(x='X', y='Y',radius='radius', source=source, color={'field': 'fold change', 'transform': color_mapper}, fill_alpha=0.5)
+        scatter_renderers.append(scatter)
+        checkbox_labels.append(f'Bin {lower_bin}-{upper_bin}')
+    checkbox_group = CheckboxGroup(labels=checkbox_labels, active=list(range(len(checkbox_labels))))
+    checkbox_group.js_on_change('active',
+                                CustomJS(args=dict(scatter_renderers=scatter_renderers, checkbox_group=checkbox_group),
+                                         code="""
+            for (let i = 0; i < scatter_renderers.length; i++) {
+                scatter_renderers[i].visible = checkbox_group.active.includes(i);
+            }
+        """))
+    hover = HoverTool(tooltips=[('Log Volume', '@log_Volume'), ('Fold Change', '@{fold change}'), ('Droplet', '@Droplet')],
+                      renderers=scatter_renderers)
+    p.add_tools(hover)
+    color_bar = ColorBar(color_mapper=color_mapper, location=(0, 0), title='fold change')
+    p.add_layout(color_bar, 'right')
 
-# def deathrate_volume_by_distance(data_dict):
-#     distances = []
-#     max_death_rate = []
-#     volumes=[]
-#     for key, value in data_dict.items():
-#         if value['Count'].iloc[0] == 0:
-#             continue
-#         else:
-#             window_size = 4
-#             mask = value['Count'] > 0
-#             value['log_count'] = value[mask]['Count'].apply(np.log)
-#             value['slope'] = value['log_count'].rolling(window_size).apply(lambda x: linregress(range(window_size), x)[0])
-#             distances.append(value['distance_to_center'].iloc[0])
-#             volumes.append(value['Volume'].iloc[0])
-#             max_death_rate.append(value['slope'].min())
-#     df = pd.DataFrame({'volumes':np.log10(volumes),'distances': distances, 'Max Death Rate': max_death_rate})
-#     data_min=df['distances'].min()
-#     data_max=df['distances'].max()
-#     bin_edges = np.arange(data_min, data_max + 1000, 1000)
-#     df['bin_index'] = np.digitize(df['distances'], bins=bin_edges, right=False)
-#     df['lower distance bin'] = bin_edges[df['bin_index'] - 1]
-#     df['upper distance bin'] = bin_edges[df['bin_index']]
-#     df['lower volume bin'] = df['volumes'].apply(math.floor)
-#     df['upper volume bin'] = df['volumes'].apply(math.ceil)
-#     grouped = df.groupby(['lower distance bin', 'upper distance bin', 'lower volume bin', 'upper volume bin'])['Max Death Rate'].agg(['mean', 'std']).reset_index()
-#     grouped['std'] = grouped['std'] / 2
-#     grouped['distance_bin_middle'] = (grouped['lower distance bin'] + grouped['upper distance bin']) / 2
-#     p = figure(title='Mean Max Death Rate by Distance', x_axis_label='Distance', y_axis_label='Mean Max Death Rate', output_backend="webgl",width=800, height=600)
-#     volume_bins = grouped[['lower volume bin', 'upper volume bin']].drop_duplicates()
-#     volume_bins = volume_bins.sort_values(by=['lower volume bin', 'upper volume bin'])
-#     colors = Category20[20]
-#     color_index = 0
-#     legend_items = []
-#     for _, row in volume_bins.iterrows():
-#         lower_bin, upper_bin = row['lower volume bin'], row['upper volume bin']
-#         filtered_data = grouped[
-#             (grouped['lower volume bin'] == lower_bin) & (grouped['upper volume bin'] == upper_bin)].copy()
-#         filtered_data['mean - std'] = filtered_data['mean'] - filtered_data['std']
-#         filtered_data['mean + std'] = filtered_data['mean'] + filtered_data['std']
-#         source = ColumnDataSource(filtered_data)
-#         line = p.line(x='distance_bin_middle', y='mean', source=source, line_width=3, color=colors[color_index])
-#         varea = p.varea(x='distance_bin_middle', y1='mean - std', y2='mean + std', source=source, fill_alpha=0.2,
-#                         color=colors[color_index])
-#         legend_item = LegendItem(label=f'Volume Bin {lower_bin}-{upper_bin}', renderers=[line, varea])
-#         legend_items.append(legend_item)
-#         color_index = (color_index + 1) % len(colors)
-#     legend = Legend(items=legend_items, location="center")
-#     p.add_layout(legend, 'right')
-#     p.legend.click_policy = "hide"
-#     return p
-#
-#
-#
-#
-# def deathrate_by_distance(data_dict):
-#     distances = []
-#     max_death_rate = []
-#     volumes = []
-#     Droplet = []
-#
-#     for key, value in data_dict.items():
-#         if value['Count'].iloc[0] == 0:
-#             continue
-#         window_size = 4
-#         mask = value['Count'] > 0
-#         value['log_count'] = value[mask]['Count'].apply(np.log)
-#         value['slope'] = value['log_count'].rolling(window_size).apply(
-#             lambda x: linregress(range(window_size), x)[0])
-#         distances.append(value['distance_to_center'].iloc[0])
-#         volumes.append(value['Volume'].iloc[0])
-#         Droplet.append(value['Droplet'].iloc[0])
-#         max_death_rate.append(value['slope'].min())
-#
-#     df = pd.DataFrame(
-#         {'Droplet': Droplet, 'volumes': np.log10(volumes), 'distances': distances, 'Max Death Rate': max_death_rate})
-#     data_min = 0
-#     data_max = df['distances'].max()
-#     bin_edges = np.arange(data_min, data_max + 1000, 1000)
-#     df['bin_index'] = np.digitize(df['distances'], bins=bin_edges, right=False)
-#     df['lower distance bin'] = bin_edges[df['bin_index'] - 1]
-#     df['upper distance bin'] = bin_edges[df['bin_index']]
-#     df['lower volume bin'] = df['volumes'].apply(np.floor)
-#     df['upper volume bin'] = df['volumes'].apply(np.ceil)
-#
-#     p = figure(title='Death Rate by Distance', x_axis_label='distance', y_axis_label='Max Death Rate',
-#                output_backend="webgl")
-#     grouped = df.groupby(['lower distance bin', 'upper distance bin'])
-#     colors = Category20[20]
-#     scatter_renderers = []
-#     for index, ((lower_bin, upper_bin), group) in enumerate(grouped):
-#         color = colors[index % len(colors)]
-#         source = ColumnDataSource(group)
-#         view = CDSView()
-#         q1 = group['Max Death Rate'].quantile(0.25)
-#         q2 = group['Max Death Rate'].quantile(0.5)
-#         q3 = group['Max Death Rate'].quantile(0.75)
-#         iqr = q3 - q1
-#         upper_whisker = q3 + 1.5 * iqr
-#         lower_whisker = q1 - 1.5 * iqr
-#         upper_whisker = group['Max Death Rate'][group['Max Death Rate'] <= upper_whisker].max()
-#         lower_whisker = group['Max Death Rate'][group['Max Death Rate'] >= lower_whisker].min()
-#         p.quad(top=[q3], bottom=[q1], left=[lower_bin], right=[upper_bin], fill_color=color, alpha=0.3)
-#         p.segment(x0=[lower_bin], y0=[q2], x1=[upper_bin], y1=[q2], line_color="black")
-#         p.segment(x0=[(lower_bin + upper_bin) / 2], y0=[upper_whisker], x1=[(lower_bin + upper_bin) / 2], y1=[q3],
-#                   line_color="black")
-#         p.segment(x0=[(lower_bin + upper_bin) / 2], y0=[lower_whisker], x1=[(lower_bin + upper_bin) / 2], y1=[q1],
-#                   line_color="black")
-#         p.line(x=[lower_bin, upper_bin], y=[upper_whisker, upper_whisker], line_color="black")
-#         p.line(x=[lower_bin, upper_bin], y=[lower_whisker, lower_whisker], line_color="black")
-#         scatter = p.scatter(x='distances', y='Max Death Rate', source=source, view=view, color=color)
-#         scatter_renderers.append(scatter)
-#     p.tools = [tool for tool in p.tools if not isinstance(tool, HoverTool)]
-#     hover = HoverTool(
-#         tooltips=[('Distance', '@distances'), ('Max Death Rate', '@{Max Death Rate}'), ('Droplet', '@Droplet')],
-#         renderers=scatter_renderers)
-#     p.add_tools(hover)
-#     return p
-#
-# def foldchange_in_each_bin_per_distance(chip):
-#     df = pd.concat(chip, ignore_index=True)
-#     df.loc[:, 'Bins_vol'] = df['log_Volume'].apply(math.floor)
-#     df.loc[:, 'Bins_vol_txt'] = df['log_Volume'].apply(math.ceil)
-#     df.rename(columns={'Bins_vol': 'lower bin', 'Bins_vol_txt': 'upper bin'}, inplace=True)
-#     data_max = df['distance_to_center'].max()
-#     bin_edges = np.arange(0, data_max + 1000, 1000)
-#     df['bin_index'] = np.digitize(df['distance_to_center'], bins=bin_edges, right=False)
-#     df['lower distance bin'] = bin_edges[df['bin_index'] - 1]
-#     df['upper distance bin'] = bin_edges[df['bin_index']]
-#     grouped = df.groupby(['lower bin', 'upper bin', 'lower distance bin', 'upper distance bin', 'time'])['Count'].sum().reset_index(name='Count')
-#     results=pd.DataFrame(columns=['lower bin', 'upper bin', 'lower distance bin', 'upper distance bin','fold change'])
-#     for (lower_bin, upper_bin,lower_dis_bin,upper_dis_bin), group in grouped.groupby(['lower bin', 'upper bin', 'lower distance bin', 'upper distance bin']):
-#         if group['Count'].iloc[0]==0:
-#             continue
-#         else:
-#             fold_change =np.log2( group['Count'].iloc[-4:].mean() / group['Count'].iloc[0])
-#             new_row = pd.DataFrame(
-#                 {'lower bin': [lower_bin], 'upper bin': [upper_bin], 'lower distance bin': [lower_dis_bin],
-#                  'upper distance bin': [upper_dis_bin], 'fold change': [fold_change]})
-#             results = pd.concat([results, new_row], ignore_index=True)
-#     p = figure(title='Fold Change in Each Bin per Distance', x_axis_label='Distance', y_axis_label='Log 2 Fold Change', output_backend="webgl",width=800, height=600)
-#     grouped = results.groupby(['lower bin', 'upper bin'])
-#     colors = Category20[20]
-#     legend_items = []  # Create a list to store all LegendItem objects
-#     for index, ((lower_bin, upper_bin), group) in enumerate(grouped):
-#         color = colors[index % len(colors)]
-#         source = ColumnDataSource(group)
-#         view = CDSView()
-#         line = p.line(x='lower distance bin', y='fold change', source=source, line_width=3, color=color)
-#         legend_item = LegendItem(label=f'Bin {lower_bin}-{upper_bin}', renderers=[line])
-#         legend_items.append(legend_item)  # Add each LegendItem to the list
-#     legend = Legend(items=legend_items)
-#     p.add_layout(legend, 'right')  # Place the legend outside the plot
-#     p.legend.click_policy = 'hide'
-#     return p
+    # Add TapTool with CustomJS callback
+    taptool = TapTool(callback=CustomJS(args=dict(sources=sources), code="""
+        for (let source of sources) {
+            const selected_index = source.selected.indices[0];
+            if (selected_index != null) {
+                const data = source.data;
+                const url = data['Google Drive Link'][selected_index];
+                window.open(url, "_blank");
+                break;  // Open the first selected link and exit the loop
+            }
+        }
+    """))
+    p.add_tools(taptool)
+    layout_config = row(checkbox_group,p, sizing_mode='fixed', width=800, height=600)
+    return layout_config
+
+def bins_volume_Vs_distance(data_dict):
+    volumes = []
+    distances = []
+    droplet_ids = []
+    fold_changes = []
+    death_rates=[]
+    min_fc = 1
+    for key, value in data_dict.items():
+        if value['Count'].iloc[0] == 0:
+            continue
+        else:
+            volumes.append(value['log_Volume'].iloc[0])
+            distances.append(value['distance_to_center'].iloc[0])
+            droplet_ids.append(key)
+            if value['Count'].iloc[-4:].mean() == 0:
+                fold_changes.append(np.nan)
+            else:
+                fold_changes.append(value['Count'].iloc[-4:].mean() / value['Count'].iloc[0])
+                if value['Count'].iloc[-4:].mean() / value['Count'].iloc[0] < min_fc:
+                    min_fc = value['Count'].iloc[-4:].mean() / value['Count'].iloc[0]
+            window_size = 4
+            mask = value['Count'] > 0
+            value['log_count'] = value[mask]['Count'].apply(np.log10)
+            value['slope'] = value['log_count'].rolling(window_size).apply(lambda x: linregress(range(window_size), x)[0])
+            death_rates.append(value['slope'].min())
+    min_fc = min_fc * 0.9
+    df = pd.DataFrame({'Volume': volumes, 'Distance': distances, 'Droplet': droplet_ids, 'Fold Change': fold_changes, 'Death Rate': death_rates})
+    df['Fold Change'] = np.where(np.isnan(df['Fold Change']), min_fc, df['Fold Change'])
+    df['Fold Change'] = np.log2(df['Fold Change'])
+    df['upper_volume_bin'] = df['Volume'].apply(math.ceil)
+    df['lower_volume_bin'] = df['Volume'].apply(math.floor)
+    distance_bins = [0, 1000, 2000, 3000, 4000, 5000]
+    df['lower_distance_bin'] = pd.cut(df['Distance'], bins=distance_bins, labels=distance_bins[:-1], right=False)
+    df['upper_distance_bin'] = pd.cut(df['Distance'], bins=distance_bins, labels=distance_bins[1:], right=False)
+    grouped=df.groupby(['lower_volume_bin', 'upper_volume_bin', 'lower_distance_bin', 'upper_distance_bin'], observed=True)
+    results = pd.DataFrame(
+        columns=['lower_volume_bin', 'upper_volume_bin', 'lower_distance_bin', 'upper_distance_bin', 'mean_fold_change',
+                 'mean_death_rate', 'number_of_droplets'])
+    for (lower_volume_bin, upper_volume_bin, lower_distance_bin, upper_distance_bin), group in grouped:
+        temp_df = pd.DataFrame({
+            'lower_volume_bin': lower_volume_bin,
+            'upper_volume_bin': upper_volume_bin,
+            'lower_distance_bin': lower_distance_bin,
+            'upper_distance_bin': upper_distance_bin,
+            'mean_fold_change': group['Fold Change'].mean(),
+            'mean_death_rate': group['Death Rate'].mean(),
+            'number_of_droplets': group['Droplet'].count()
+        }, index=[0])
+        results = pd.concat([results, temp_df], ignore_index=True)
+    if results['mean_death_rate'].isna().any():
+        results['mean_death_rate'] = results['mean_death_rate'].fillna(results['mean_death_rate'].min()*0.9)
+    def create_plot(results, y_axis_label, y_column):
+        p = figure(title=f'Distance Bin vs. {y_axis_label}', x_axis_label='Distance Bin', y_axis_label=y_axis_label,
+                   output_backend="webgl", width=800, height=600)
+        volume_bins = results['lower_volume_bin'].unique()
+        colors = Category20[len(volume_bins)]
+        legend_items = []
+
+        for i, volume_bin in enumerate(volume_bins):
+            volume_bin_data = results[results['lower_volume_bin'] == volume_bin]
+            if len(volume_bin_data) == 1:
+                continue
+            else:
+                source = ColumnDataSource(volume_bin_data)
+                line = p.line(x='lower_distance_bin', y=y_column, source=source, line_width=3, color=colors[i])
+                legend_item = LegendItem(label=f'Volume Bin {volume_bin}-{volume_bin + 1}', renderers=[line])
+                legend_items.append(legend_item)
+
+        legend = Legend(items=legend_items, location='top_left')
+        p.add_layout(legend, 'right')
+        p.legend.click_policy = 'hide'
+        return p
+
+    plot_fold_change = create_plot(results, 'Mean Fold Change', 'mean_fold_change')
+    plot_death_rate = create_plot(results, 'Mean Death Rate', 'mean_death_rate')
+
+    return row(plot_fold_change, plot_death_rate)
+
+
+
+
+
+
+
 
 def dashborde():
     chips = split_data_to_chips()
+    initial_densities = initial_stats(chips)
+    for key, value in initial_densities.items():
+        density=value['Count'].sum()/value['Volume'].sum()
+        initial_densities[key]=density
     for key, value in chips.items():
         chips[key] = find_droplet_location(value)
         chips[key] = chips[key][chips[key]['log_Volume'] >= 3]
@@ -991,21 +1055,41 @@ def dashborde():
     layouts={}
     for key, value in initial_data.items():
         chip, experiment_time, time_steps = get_slice(chips, key)
+        stats_box_plot=stats_box(value, experiment_time, time_steps, key)
+        droplets_histogram_plot=droplet_histogram(value)
+        N0_Vs_Volume_plot=N0_Vs_Volume(value)
+        Initial_Density_Vs_Volume_plot,volume=Initial_Density_Vs_Volume(value, initial_densities[key])
+        Fraction_in_each_bin_plot=Fraction_in_each_bin(chip, experiment_time)
+        growth_curves_plot=growth_curves(chip)
+        normalize_growth_curves_plot=normalize_growth_curves(chip)
+        fold_change_plot=fold_change(chip)
+        last_4_hours_average_plot=last_4_hours_average(chip,volume)
+        death_rate_by_droplets_plot=death_rate_by_droplets(chip)
+        death_rate_by_bins_plot=death_rate_by_bins(chip)
+        distance_Vs_Volume_histogram_plot=distance_Vs_Volume_histogram(value)
+        distance_Vs_occupide_histogram_plot=distance_Vs_occupide_histogram(value)
+        distance_Vs_Volume_circle_plot=distance_Vs_Volume_circle(value)
+        distance_Vs_occupide_circle_plot=distance_Vs_occupide_circle(value)
+        distance_Vs_Volume_colored_by_death_rate_plot=distance_Vs_Volume_colored_by_death_rate(value, chip)
+        distance_Vs_Volume_colored_by_fold_change_plot=distance_Vs_Volume_colored_by_fold_change(value, chip)
+        bins_volume_Vs_distance_plot=bins_volume_Vs_distance(chip)
         layout = column(
-                        #stats_box(value, experiment_time, time_steps, key),
-                        #row(droplet_histogram(value), N0_Vs_Volume(value)),
-                        #row(Initial_Density_Vs_Volume(value), Fraction_in_each_bin(chip, experiment_time)),
-                        #growth_curves(chip),normalize_growth_curves(chip),
-                        #row(fold_change(chip), last_4_hours_average(chip)),
-                        row(death_rate_by_droplets(chip), death_rate_by_bins(chip)),
-                        #row(distance_Vs_Volume_histogram(value),distance_Vs_occupide_histogram(value)),
-                        #row(distance_Vs_Volume_circle(value),distance_Vs_occupide_circle(value)),
-                        #row(distance_Vs_Volume_colored_by_death_rate(value, chip)),
-                        #row(deathrate_by_distance(chip),deathrate_volume_by_distance(chip)),
-                        #row(foldchange_in_each_bin_per_distance(chip))
+                        stats_box_plot,
+                        row(droplets_histogram_plot, N0_Vs_Volume_plot),
+                        row(Initial_Density_Vs_Volume_plot, Fraction_in_each_bin_plot),
+                        growth_curves_plot,
+                        normalize_growth_curves_plot,
+                        row(fold_change_plot, last_4_hours_average_plot),
+                        row(death_rate_by_droplets_plot, death_rate_by_bins_plot),
+                        row(distance_Vs_Volume_histogram_plot, distance_Vs_occupide_histogram_plot),
+                        row(distance_Vs_Volume_circle_plot, distance_Vs_occupide_circle_plot),
+                        row(distance_Vs_Volume_colored_by_death_rate_plot, distance_Vs_Volume_colored_by_fold_change_plot,spacing=25),
+                        bins_volume_Vs_distance_plot
                         )
         layouts[key]=layout
     return layouts
+
+
 def create_dashboard():
     layouts = dashborde()
     output_file('dashboard.html')
@@ -1024,6 +1108,7 @@ def create_dashboard():
         layouts[select.value].visible = true;
     """))
     show(column(select, all_layouts_column))
+
 if __name__ == '__main__':
     create_dashboard()
 
