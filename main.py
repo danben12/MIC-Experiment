@@ -84,7 +84,7 @@ def stats_box(df,time, max_step,chip_name):
     return column(stats_div)
 
 def droplet_histogram(df):
-    bins = np.logspace(np.log10(df['Volume'].min()), np.log10(df['Volume'].max()), num=16)
+    bins = np.logspace(3, 8, num=16)
     hist = figure(title='Histogram of Droplet Size', x_axis_type='log',
                   x_axis_label='Volume', y_axis_label='Frequency', output_backend="webgl")
     hist_data = np.histogram(df['Volume'], bins=bins)
@@ -1130,9 +1130,9 @@ def dashborde():
         chip, experiment_time, time_steps = get_slice(chips, key)
         # stats_box_plot=stats_box(value, experiment_time, time_steps, key)
         # droplets_histogram_plot=droplet_histogram(value)
-        # Initial_Density_Vs_Volume_plot,volume=Initial_Density_Vs_Volume(value, initial_densities[key])
+        Initial_Density_Vs_Volume_plot,volume=Initial_Density_Vs_Volume(value, initial_densities[key])
         # N0_Vs_Volume_plot=N0_Vs_Volume(value,volume)
-        # Fraction_in_each_bin_plot=Fraction_in_each_bin(chip, experiment_time)
+        Fraction_in_each_bin_plot=Fraction_in_each_bin(chip, experiment_time)
         # growth_curves_plot=growth_curves(chip)
         # normalize_growth_curves_plot=normalize_growth_curves(chip)
         # fold_change_plot=fold_change(chip,volume)
@@ -1145,11 +1145,11 @@ def dashborde():
         # distance_Vs_occupide_circle_plot=distance_Vs_occupide_circle(value)
         # distance_Vs_Volume_colored_by_death_rate_plot=distance_Vs_Volume_colored_by_death_rate(value, chip,key)
         # distance_Vs_Volume_colored_by_fold_change_plot=distance_Vs_Volume_colored_by_fold_change(value, chip)
-        bins_volume_Vs_distance_plot=bins_volume_Vs_distance(chip,key)
+        # bins_volume_Vs_distance_plot=bins_volume_Vs_distance(chip,key)
         layout = column(
                         # stats_box_plot,
                         # row(droplets_histogram_plot, N0_Vs_Volume_plot),
-                        # row(Initial_Density_Vs_Volume_plot,Fraction_in_each_bin_plot),
+                        row(Initial_Density_Vs_Volume_plot,Fraction_in_each_bin_plot),
                         # growth_curves_plot,
                         # normalize_growth_curves_plot,
                         # row(fold_change_plot, last_4_hours_average_plot),
@@ -1157,7 +1157,7 @@ def dashborde():
                         # row(distance_Vs_Volume_histogram_plot, distance_Vs_occupide_histogram_plot),
                         # row(distance_Vs_Volume_circle_plot, distance_Vs_occupide_circle_plot),
                         # row(distance_Vs_Volume_colored_by_death_rate_plot, distance_Vs_Volume_colored_by_fold_change_plot,spacing=75),
-                        bins_volume_Vs_distance_plot
+                        # bins_volume_Vs_distance_plot
                         )
         layouts[key]=layout
     return layouts

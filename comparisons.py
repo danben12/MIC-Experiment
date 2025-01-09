@@ -18,7 +18,7 @@ def dashborde():
     initial_data = main.initial_stats(chips)
     plot_types = {
         # 'droplet_histogram': [],
-        # 'N0_Vs_Volume': [],
+        'N0_Vs_Volume': [],
         'Initial_Density_Vs_Volume': [],
         # 'Fraction_in_each_bin': [],
         # 'growth_curves': [],
@@ -45,10 +45,10 @@ def dashborde():
         Initial_Density_Vs_Volume_column.update(title=f'Initial Density Vs Volume for {key}')
         Initial_Density_Vs_Volume_column.y_range = Range1d(start=10**(-4.7), end=10**(-0.5))
         plot_types['Initial_Density_Vs_Volume'].append(Initial_Density_Vs_Volume_column)
-        # N0_Vs_Volume_column = N0_Vs_Volume(value,volume)
-        # N0_Vs_Volume_column.children[0].update(title=f'N0 Vs Volume for {key}')
-        # N0_Vs_Volume_column.children[0].y_range = Range1d(start=1, end=10**5)
-        # plot_types['N0_Vs_Volume'].append(N0_Vs_Volume_column)
+        N0_Vs_Volume_column = N0_Vs_Volume(value,volume)
+        N0_Vs_Volume_column.children[0].update(title=f'N0 Vs Volume for {key}')
+        N0_Vs_Volume_column.children[0].y_range = Range1d(start=1, end=10**5)
+        plot_types['N0_Vs_Volume'].append(N0_Vs_Volume_column)
         # Fraction_in_each_bin_column = main.Fraction_in_each_bin(chip, experiment_time)
         # Fraction_in_each_bin_column.update(title=f'Fraction of Population in Each Bin at Start for {key}')
         # plot_types['Fraction_in_each_bin'].append(Fraction_in_each_bin_column)
@@ -116,9 +116,6 @@ def dashborde():
         # bins_volume_Vs_distance_column.children[0].update(title=f'Bin volumes vs. Distance to Center for {key} by Mean Fold Change')
         # bins_volume_Vs_distance_column.children[1].update(title=f'Bin volumes vs. Distance to Center for {key} by Mean Death Rate')
         # plot_types['bins_volume_Vs_distance'].append(bins_volume_Vs_distance_column)
-
-
-
 
     return plot_types,list(chips.keys())
 
