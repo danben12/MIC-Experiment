@@ -401,15 +401,10 @@ def last_4_hours_average(chip, volume):
     google_drive_urls = [df['Google Drive Link'].iloc[0] for df in chip.values()]  # Add URL
     data = pd.DataFrame({'Volume': droplet_sizes, 'Average Count': average_counts, 'Droplet': droplet_ids, 'Google Drive Link': google_drive_urls})
     data = data.sort_values(by='Volume').reset_index(drop=True)
-
-    # Split data into two parts based on the volume vertical line
     data_before = data[data['Volume'] <= volume]
     data_after = data[data['Volume'] > volume]
-
     data_before = data_before[data_before['Average Count'] > data_before['Average Count'].min()]
     data_after = data_after[data_after['Average Count'] > data_after['Average Count'].min()]
-
-    # Perform linear regression on each part
     if not data_before.empty:
         slope_before, intercept_before, r_value_before, _, _ = linregress(np.log10(data_before['Volume']), np.log10(data_before['Average Count']))
         x_values_before = np.linspace(data_before['Volume'].min(), volume, 100)
@@ -438,18 +433,21 @@ def last_4_hours_average(chip, volume):
         label_x_before = (x_values_before[0] + x_values_before[-1]) / 2
         label_y_before = 10 ** (intercept_before + slope_before * np.log10(label_x_before))
         label_before = Label(x=label_x_before, y=label_y_before, text=f'Slope: {slope_before:.2f}', text_color='red')
+        scatter.renderers.append(label_before)
         scatter.add_layout(label_before)
     if x_values_after.any() and y_values_after.any():
         regression_after_renderer = scatter.line(x_values_after, y_values_after, color='blue')
         label_x_after = (x_values_after[0] + x_values_after[-1]) / 2
         label_y_after = 10 ** (intercept_after + slope_after * np.log10(label_x_after))
         label_after = Label(x=label_x_after, y=label_y_after, text=f'Slope: {slope_after:.2f}', text_color='blue')
+        scatter.renderers.append(label_after)
         scatter.add_layout(label_after)
     hover = HoverTool(tooltips=[('Volume', '@Volume'), ('Average Count', '@{Average Count}'), ('Droplet ID', '@Droplet')],
                       renderers=[scatter.renderers[0]])
     scatter.add_tools(hover)
     vline = Span(location=volume, dimension='height', line_color='blue', line_dash='dashed', line_width=2)
     scatter.add_layout(vline)
+    scatter.renderers.append(vline)
     invisible_line = scatter.line([0], [0], color='blue', line_dash='dashed', line_width=2)
     taptool = TapTool(callback=CustomJS(args=dict(source=source), code="""
         const selected_index = source.selected.indices[0];
@@ -618,6 +616,7 @@ def death_rate_by_droplets(data_dict,chip):
         p.add_layout(label)
     source = ColumnDataSource(df)
     scatter = p.scatter(x='Volume', y='Slope', source=source, color='color')
+    num_points = len(scatter.data_source.data['Volume'])
     for (lower_bin, upper_bin), group in grouped:
         color = color_map[(lower_bin, upper_bin)]
         q1 = group['Slope'].quantile(0.25)
@@ -734,6 +733,7 @@ def distance_Vs_occupide_histogram(df):
     p.add_layout(p.legend[0], 'right')
 
     return p
+
 
 def distance_Vs_Volume_circle(df):
     df = df.copy()
@@ -900,6 +900,7 @@ def distance_Vs_Volume_colored_by_death_rate(df, data_dict,chip):
                       renderers=scatter_renderers)
     p.add_tools(hover)
     color_bar = ColorBar(color_mapper=color_mapper, location=(0, 0), title='Slope')
+    p.renderers.append(color_bar)
     p.add_layout(color_bar, 'right')
 
     # Add TapTool with CustomJS callback
@@ -986,6 +987,7 @@ def distance_Vs_Volume_colored_by_fold_change(df, data_dict):
                       renderers=scatter_renderers)
     p.add_tools(hover)
     color_bar = ColorBar(color_mapper=color_mapper, location=(0, 0), title='fold change')
+    p.renderers.append(color_bar)
     p.add_layout(color_bar, 'right')
 
     # Add TapTool with CustomJS callback
@@ -1130,9 +1132,9 @@ def dashborde():
         chip, experiment_time, time_steps = get_slice(chips, key)
         # stats_box_plot=stats_box(value, experiment_time, time_steps, key)
         # droplets_histogram_plot=droplet_histogram(value)
-        Initial_Density_Vs_Volume_plot,volume=Initial_Density_Vs_Volume(value, initial_densities[key])
+        # Initial_Density_Vs_Volume_plot,volume=Initial_Density_Vs_Volume(value, initial_densities[key])
         # N0_Vs_Volume_plot=N0_Vs_Volume(value,volume)
-        Fraction_in_each_bin_plot=Fraction_in_each_bin(chip, experiment_time)
+        # Fraction_in_each_bin_plot=Fraction_in_each_bin(chip, experiment_time)
         # growth_curves_plot=growth_curves(chip)
         # normalize_growth_curves_plot=normalize_growth_curves(chip)
         # fold_change_plot=fold_change(chip,volume)
@@ -1143,21 +1145,21 @@ def dashborde():
         # distance_Vs_occupide_histogram_plot=distance_Vs_occupide_histogram(value)
         # distance_Vs_Volume_circle_plot=distance_Vs_Volume_circle(value)
         # distance_Vs_occupide_circle_plot=distance_Vs_occupide_circle(value)
-        # distance_Vs_Volume_colored_by_death_rate_plot=distance_Vs_Volume_colored_by_death_rate(value, chip,key)
-        # distance_Vs_Volume_colored_by_fold_change_plot=distance_Vs_Volume_colored_by_fold_change(value, chip)
-        # bins_volume_Vs_distance_plot=bins_volume_Vs_distance(chip,key)
+        distance_Vs_Volume_colored_by_death_rate_plot=distance_Vs_Volume_colored_by_death_rate(value, chip,key)
+        distance_Vs_Volume_colored_by_fold_change_plot=distance_Vs_Volume_colored_by_fold_change(value, chip)
+        bins_volume_Vs_distance_plot=bins_volume_Vs_distance(chip,key)
         layout = column(
                         # stats_box_plot,
                         # row(droplets_histogram_plot, N0_Vs_Volume_plot),
-                        row(Initial_Density_Vs_Volume_plot,Fraction_in_each_bin_plot),
+                        # row(Initial_Density_Vs_Volume_plot,Fraction_in_each_bin_plot),
                         # growth_curves_plot,
                         # normalize_growth_curves_plot,
-                        # row(fold_change_plot, last_4_hours_average_plot),
                         # row(death_rate_by_droplets_plot, death_rate_by_bins_plot),
+                        # row(fold_change_plot, last_4_hours_average_plot),
                         # row(distance_Vs_Volume_histogram_plot, distance_Vs_occupide_histogram_plot),
                         # row(distance_Vs_Volume_circle_plot, distance_Vs_occupide_circle_plot),
-                        # row(distance_Vs_Volume_colored_by_death_rate_plot, distance_Vs_Volume_colored_by_fold_change_plot,spacing=75),
-                        # bins_volume_Vs_distance_plot
+                        row(distance_Vs_Volume_colored_by_death_rate_plot, distance_Vs_Volume_colored_by_fold_change_plot,spacing=75),
+                        bins_volume_Vs_distance_plot
                         )
         layouts[key]=layout
     return layouts

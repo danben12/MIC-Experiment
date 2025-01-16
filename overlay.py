@@ -1,12 +1,16 @@
+from cProfile import label
+
 import comparisons
 from bokeh.plotting import figure
 from bokeh.io import show
-from bokeh.models import Legend, LegendItem
+from bokeh.models import Legend, LegendItem, GlyphRenderer, Span, LabelSet, CustomJS, Scatter, Quad, Segment, Line, \
+    CheckboxGroup, ColorBar
 from bokeh.palettes import Category20
 from bokeh.models import HoverTool, TapTool
 from bokeh.models import ColumnDataSource
-from bokeh.layouts import column
+from bokeh.layouts import column, row
 from bokeh.models import Range1d
+from bokeh.models import Label
 
 plot_types, chip_names = comparisons.dashborde()
 
@@ -235,6 +239,531 @@ def normalize_growth_curves_overlay(plot_types,chip_names):
     fig_log.legend.click_policy = 'hide'
     return column(fig_linear, fig_log)
 
+def fold_change_overlay(plot_types,chip_names):
+    fold_change=plot_types['fold_change']
+    fig=figure(title='Volume vs. Log2 Fold Change', x_axis_type='log',
+                     x_axis_label='Volume', y_axis_label='Log2 Fold Change', output_backend="webgl",width=1600, height=1200)
+    legend_items = []
+    colors = Category20[20]
+    for i, s in enumerate(fold_change):
+        combined_tooltips = []
+        for j, renderer in enumerate(s.renderers):
+            renderer.visible = False
+            fig.renderers.append(renderer)
+            if j == 0:
+                label = f'Fold Change {chip_names[i]}'
+                renderer.glyph.line_color = colors[i * 2 + j % 2]
+                renderer.glyph.fill_color = colors[i * 2 + j % 2]
+            elif j == 1:
+                label = f'Moving Average {chip_names[i]}'
+                renderer.glyph.line_color = colors[i * 2 + j % 2]
+                renderer.glyph.line_width = 3
+                renderer.glyph.line_alpha = 1
+            elif j == 2:
+                label = f'Metapopulation Fold Change {chip_names[i]}'
+                renderer.glyph.line_color = colors[i * 2 + j % 2]
+                renderer.glyph.line_width = 3
+                renderer.glyph.line_alpha = 1
+            elif j == 3:
+                label = f'Vc {chip_names[i]}'
+                renderer.glyph.line_color = colors[i * 2 + j % 2]
+                renderer.glyph.line_width = 3
+                renderer.glyph.line_alpha = 1
+            else:
+                continue
+            legend_items.append(LegendItem(label=label, renderers=[renderer]))
+        for tool in s.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig.js_on_event('tap', tool.callback)
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig.add_tools(hover)
+    fig.add_tools(TapTool())
+    legend = Legend(items=legend_items)
+    fig.add_layout(legend, 'right')
+    fig.legend.click_policy = 'hide'
+    fig.y_range = Range1d(-10.5, 9)
+    return fig
+def last_4_hours_average_overlay(plot_types,chip_names):
+    last_4_hours_average=plot_types['last_4_hours_average']
+    fig=figure(title='Average Number of Bacteria in Last 4 Hours vs. Droplet Size', x_axis_type='log',
+                     y_axis_type='log', x_axis_label='Volume', y_axis_label='Average Count', output_backend="webgl", width=1600, height=1200)
+    legend_items = []
+    colors = Category20[20]
+    for i, s in enumerate(last_4_hours_average):
+        combined_tooltips = []
+        for j, renderer in enumerate(s.renderers):
+            renderer.visible = False
+            fig.renderers.append(renderer)
+            if j == 0:
+                label = f'Average Count {chip_names[i]}'
+                renderer.glyph.line_color = colors[i * 2 + j % 2]
+                renderer.glyph.fill_color = colors[i * 2 + j % 2]
+            elif j == 1:
+                label = f'Regression Before {chip_names[i]}'
+                renderer.glyph.line_color = colors[i * 2 + j % 2]
+                renderer.glyph.line_width = 3
+                renderer.glyph.line_alpha = 1
+                line_renderer = renderer  # Store the line renderer for the callback
+            elif j == 2:
+                label_annotation = renderer
+                label_annotation.text_font_size = '12pt'
+                label_annotation.text_font_style = 'bold'
+                label_annotation.text_color = colors[i * 2 + j % 2]
+                callback = CustomJS(args=dict(line=line_renderer, label=label_annotation), code="""
+                        label.visible = line.visible;
+                    """)
+                line_renderer.js_on_change('visible', callback)
+                continue
+            elif (j == 3 or j==4) and isinstance(renderer, GlyphRenderer):
+                source = renderer.data_source
+                if 'x' in source.data and 'y' in source.data:
+                    if all(x == 0 for x in source.data['x']) and all(y == 0 for y in source.data['y']):
+                        continue
+                label = f'Regression After {chip_names[i]}'
+                renderer.glyph.line_color = colors[i * 2 + j % 2]
+                renderer.glyph.line_width = 3
+                renderer.glyph.line_alpha = 1
+                line_renderer = renderer
+            elif j == 3 or j==5 and isinstance(renderer, Span):
+                fig.y_range.start = 0.05
+                fig.y_range.end = 1e6
+                label = f'Vc {chip_names[i]}'
+                span_location = renderer.location if hasattr(renderer, 'location') else 0
+                source = ColumnDataSource(
+                    data=dict(x=[span_location, span_location], y=[fig.y_range.start, fig.y_range.end]))
+                renderer = fig.line('x', 'y', source=source, line_color=colors[i * 2 + j % 2],
+                                        line_width=3, line_alpha=1, line_dash='dashed')
+                renderer.visible = False
+            elif j == 4 and isinstance(renderer, Label):
+                label_annotation = renderer
+                label_annotation.text_font_size = '12pt'
+                label_annotation.text_font_style = 'bold'
+                label_annotation.text_color = colors[i * 2 + j % 2]
+                callback = CustomJS(args=dict(line=line_renderer, label=label_annotation), code="""
+                        label.visible = line.visible;
+                    """)
+                line_renderer.js_on_change('visible', callback)
+                continue
+            else:
+                continue
+            legend_items.append(LegendItem(label=label, renderers=[renderer]))
+        for tool in s.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig.js_on_event('tap', tool.callback)
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig.add_tools(hover)
+    fig.add_tools(TapTool())
+    legend = Legend(items=legend_items)
+    fig.add_layout(legend, 'right')
+    fig.legend.click_policy = 'hide'
+    return fig
+def death_rate_by_droplets_overlay(plot_types,chip_names):
+    death_rate_by_droplets=plot_types['death_rate_by_droplets']
+    fig=figure(title='Minimal/Maximal slope by Droplets', x_axis_label='log 10 Volume', y_axis_label='slope',output_backend="webgl",width=1600, height=1200)
+    legend_items = []
+    colors = Category20[20]
+    for i, s in enumerate(death_rate_by_droplets):
+        print(f"Processing element {i} of {len(death_rate_by_droplets)}")
+        combined_tooltips = []
+        add=False
+        quad_renderers = []
+        segments_renderers = []
+        line_renderers = []
+        for j, renderer in enumerate(s.renderers):
+            print(f"  Renderer {j} of {len(s.renderers)}")
+            if isinstance(renderer.glyph, Scatter):
+                print(f"    Scatter")
+                add=True
+                renderer.visible = False
+                scatter_renderer = renderer
+                fig.renderers.append(scatter_renderer)
+                if i==3 or i==4:
+                    label = f'Maximal slope by Droplets {chip_names[i]}'
+                else:
+                    label = f'Minimal slope by Droplets {chip_names[i]}'
+                scatter_renderer.glyph.line_color = colors[i * 2]
+                scatter_renderer.glyph.fill_color = colors[i * 2]
+                continue
+            elif isinstance(renderer.glyph,Quad):
+                print(f"    Quad")
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                renderer.glyph.fill_alpha=0.3
+                renderer.glyph.line_alpha=0.5
+                renderer.glyph.fill_color = colors[i * 2]
+                renderer.glyph.line_color = colors[i * 2]
+                quad_renderers.append(renderer)
+                continue
+            elif isinstance(renderer.glyph,Segment):
+                print(f"    Segment")
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                renderer.glyph.line_color = colors[i * 2]
+                segments_renderers.append(renderer)
+                continue
+            elif isinstance(renderer.glyph,Line) and add and not renderer.glyph.line_dash:
+                print(f"    Line")
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                renderer.glyph.line_color = colors[i * 2]
+                line_renderers.append(renderer)
+                continue
+            else:
+                continue
+        legend_items.append(LegendItem(label=label, renderers=[scatter_renderer,*quad_renderers,*segments_renderers,*line_renderers]))
+        for tool in s.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig.js_on_event('tap', tool.callback)
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig.add_tools(hover)
+    fig.add_tools(TapTool())
+    legend = Legend(items=legend_items)
+    fig.add_layout(legend, 'right')
+    fig.legend.click_policy = 'hide'
+    return fig
 
+def death_rate_by_bins_overlay(plot_types,chip_names):
+    death_rate_by_bins=plot_types['death_rate_by_bins']
+    fig = figure(title='Death Rate by Bins', x_axis_label='Time', y_axis_label='Slope', width=1600, height=1200,
+               output_backend="webgl")
+    legend_items = []
+    for i, g in enumerate(death_rate_by_bins):
+        for j in range(0, len(g.renderers), 2):
+            renderer1 = g.renderers[j]
+            renderer2 = g.renderers[j + 1] if j + 1 < len(g.renderers) else None
+            renderer1.visible = False
+            fig.renderers.append(renderer1)
+            if renderer2:
+                renderer2.visible = False
+                fig.renderers.append(renderer2)
+                label = f"{g.legend.items[j // 2].label['value']} {chip_names[i]}"  # Keep the original label
+                legend_items.append(LegendItem(label=label, renderers=[renderer1, renderer2]))
+            else:
+                label = f"{g.legend.items[j // 2].label['value']} {chip_names[i]}"  # Keep the original label
+                legend_items.append(LegendItem(label=label, renderers=[renderer1]))
+    legend = Legend(items=legend_items)
+    fig.add_layout(legend, 'right')
+    fig.legend.click_policy = 'hide'
+    return fig
 
+def distance_Vs_Volume_histogram_overlay(plot_types,chip_names):
+    distance_Vs_Volume_histogram=plot_types['distance_Vs_Volume_histogram']
+    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4055"]
+    fig = figure(x_range=distance_labels, title="Normalized Stacked Histogram: Distance vs. Log Volume",
+               toolbar_location=None, tools="", width=1600, height=1200, output_backend="webgl")
+    legend_items = []
+    colors = Category20[20]
+    for i, h in enumerate(distance_Vs_Volume_histogram):
+        combined_tooltips = []
+        for j, renderer in enumerate(h.renderers):
+            renderer.visible = False
+            fig.renderers.append(renderer)
+            if j == 0:
+                label = f'3-4 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            elif j == 1:
+                label = f'4-5 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            elif j == 2:
+                label = f'5-6 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            elif j == 3:
+                label = f'6-7 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            elif j == 4:
+                label = f'7-8 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            legend_items.append(LegendItem(label=label, renderers=[renderer]))
+        for tool in h.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig.add_tools(hover)
+    legend = Legend(items=legend_items)
+    fig.add_layout(legend, 'right')
+    fig.legend.click_policy = 'hide'
+    return fig
 
+def distance_Vs_occupide_histogram_overlay(plot_types,chip_names):
+    distance_Vs_occupide_histogram=plot_types['distance_Vs_occupide_histogram']
+    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4055"]
+    fig = figure(x_range=distance_labels, title="Normalized Stacked Histogram: Distance vs. Log Volume Occupied",
+               toolbar_location=None, tools="", width=1600, height=1200, output_backend="webgl")
+    legend_items = []
+    colors = Category20[20]
+    for i, h in enumerate(distance_Vs_occupide_histogram):
+        combined_tooltips = []
+        for j, renderer in enumerate(h.renderers):
+            renderer.visible = False
+            fig.renderers.append(renderer)
+            if j == 0:
+                label = f'3-4 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            elif j == 1:
+                label = f'4-5 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            elif j == 2:
+                label = f'5-6 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            elif j == 3:
+                label = f'6-7 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            elif j == 4:
+                label = f'7-8 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+            legend_items.append(LegendItem(label=label, renderers=[renderer]))
+        for tool in h.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig.add_tools(hover)
+    legend = Legend(items=legend_items)
+    fig.add_layout(legend, 'right')
+    fig.legend.click_policy = 'hide'
+    return fig
+def distance_Vs_Volume_circle_overlay(plot_types,chip_names):
+    distance_Vs_Volume_circle=plot_types['distance_Vs_Volume_circle']
+    fig = figure(title='Distance to Center vs. Volume',
+               output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110), width=1600, height=1200)
+    legend_items = []
+    colors = Category20[20]
+    for i, s in enumerate(distance_Vs_Volume_circle):
+        combine_tooltips = []
+        for j, renderer in enumerate(s.renderers):
+            if i==0 and j in [0,1,2,3]:
+                fig.renderers.append(renderer)
+                continue
+            elif j==4:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 3-4 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 5:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 4-5 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 6:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 5-6 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 7:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 6-7 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 8:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 7-8 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            else:
+                continue
+            legend_items.append(LegendItem(label=label, renderers=[renderer]))
+        for tool in s.tools:
+            if isinstance(tool, HoverTool):
+                combine_tooltips.extend(tool.tooltips)
+    hover = HoverTool(tooltips=combine_tooltips)
+    fig.add_tools(hover)
+    legend = Legend(items=legend_items)
+    fig.add_layout(legend, 'right')
+    fig.legend.click_policy = 'hide'
+    return fig
+
+def distance_Vs_occupide_circle_overlay(plot_types,chip_names):
+    distance_Vs_occupide_circle=plot_types['distance_Vs_occupide_circle']
+    fig = figure(title='Distance to Center vs. Volume Occupied',
+               output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110), width=1600, height=1200)
+    legend_items = []
+    colors = Category20[20]
+    for i, s in enumerate(distance_Vs_occupide_circle):
+        combine_tooltips = []
+        for j, renderer in enumerate(s.renderers):
+            if i==0 and j in [0,1,2,3]:
+                fig.renderers.append(renderer)
+                continue
+            elif j==4:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 3-4 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 5:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 4-5 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 6:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 5-6 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 7:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 6-7 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 8:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 7-8 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[j]
+                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            else:
+                continue
+            legend_items.append(LegendItem(label=label, renderers=[renderer]))
+        for tool in s.tools:
+            if isinstance(tool, HoverTool):
+                combine_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig.js_on_event('tap', tool.callback)
+    hover = HoverTool(tooltips=combine_tooltips)
+    fig.add_tools(hover)
+    fig.add_tools(TapTool())
+    legend = Legend(items=legend_items)
+    fig.add_layout(legend, 'right')
+    fig.legend.click_policy = 'hide'
+    return fig
+def distance_Vs_Volume_colored_by_death_rate_overlay(plot_types,chip_names):
+    checkboxes = [plot.children[0] for plot in plot_types['distance_Vs_Volume_colored_by_death_rate']]
+    plot=[plot.children[1] for plot in plot_types['distance_Vs_Volume_colored_by_death_rate']]
+    fig = figure(
+        title='Distance to Center vs. Volume Colored by Maximal/Minimal Slope',
+        match_aspect=True,
+        output_backend="webgl", width=1600, height=1200)
+    combined_labels = []
+    for i, s in enumerate(checkboxes):
+        combined_labels.extend([f"{label} {chip_names[i]}" for label in s.labels])
+    combined_checkbox_group = CheckboxGroup(labels=combined_labels)
+    for i, s in enumerate(plot):
+        combined_tooltips = []
+        for j, renderer in enumerate(s.renderers):
+            if i==0 and j in [0,1,2,3]:
+                fig.renderers.append(renderer)
+                continue
+            elif i==1 and j==len(s.renderers)-1:
+                fig.add_layout(renderer, 'right')
+            elif j>=4 and j<len(s.renderers)-1:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+        for tool in s.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig.js_on_event('tap', tool.callback)
+    hover=HoverTool(tooltips=combined_tooltips)
+    fig.add_tools(hover)
+    fig.add_tools(TapTool())
+    combined_checkbox_group.js_on_change('active', CustomJS(args=dict(renderers=fig.renderers[4:]), code="""
+        for (let i = 0; i < renderers.length; i++) {
+            renderers[i].visible = cb_obj.active.includes(i);
+        }
+    """))
+    return row(combined_checkbox_group, fig)
+def distance_Vs_Volume_colored_by_fold_change_overlay(plot_types,chip_names):
+    checkboxes = [plot.children[0] for plot in plot_types['distance_Vs_Volume_colored_by_fold_change']]
+    plot = [plot.children[1] for plot in plot_types['distance_Vs_Volume_colored_by_fold_change']]
+    fig = figure(
+        title='Distance to Center vs. Volume Colored by Fold Change',
+        match_aspect=True,
+        output_backend="webgl", width=1600, height=1200)
+    combined_labels = []
+    for i, s in enumerate(checkboxes):
+        combined_labels.extend([f"{label} {chip_names[i]}" for label in s.labels])
+    combined_checkbox_group = CheckboxGroup(labels=combined_labels)
+    for i, s in enumerate(plot):
+        combined_tooltips = []
+        for j, renderer in enumerate(s.renderers):
+            if i == 0 and j in [0, 1, 2, 3]:
+                fig.renderers.append(renderer)
+                continue
+            elif i == 1 and j == len(s.renderers) - 1:
+                fig.add_layout(renderer, 'right')
+            elif j >= 4 and j < len(s.renderers) - 1:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                renderer.glyph.line_alpha = 0.5
+                renderer.glyph.fill_alpha = 0.3
+        for tool in s.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig.js_on_event('tap', tool.callback)
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig.add_tools(hover)
+    fig.add_tools(TapTool())
+    combined_checkbox_group.js_on_change('active', CustomJS(args=dict(renderers=fig.renderers[4:]), code="""
+            for (let i = 0; i < renderers.length; i++) {
+                renderers[i].visible = cb_obj.active.includes(i);
+            }
+        """))
+    return row(combined_checkbox_group, fig)
+
+show(distance_Vs_Volume_colored_by_fold_change_overlay(plot_types,chip_names))

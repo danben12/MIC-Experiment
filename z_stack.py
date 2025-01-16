@@ -32,7 +32,7 @@ def process_split_image(j):
     max_score_index = focus_scores.index(max(focus_scores))
     return j[max_score_index]
 
-def process_split_size(i, path):
+def process_split_size(i, path, name):
     with nd2.ND2File(path) as reader:
         images = np.array(reader)
         split = split_image(images, i, i)
@@ -45,7 +45,9 @@ def process_split_size(i, path):
             row = idx // i
             col = idx % i
             big_image[row * img_height:(row + 1) * img_height, col * img_width:(col + 1) * img_width] = image
-        return big_image
+        save_path = os.path.join(os.path.dirname(path), f'{name} best z.tiff')
+        tiff.imwrite(save_path, big_image)
+
 
 # if __name__ == "__main__":
 #     t=time.time()
@@ -60,16 +62,14 @@ def process_split_size(i, path):
 #     plt.show()
 #     print(f"Time taken: {time.time()-t:.2f} seconds")
 if __name__ == "__main__":
-    t=time.time()
-    path=r"L:\Dan test files_01012025\OBJ X20\test_obj x20_12x12 FOV's GFP.nd2"
-    big_image = process_split_size(200, path)
-    tiff.imwrite(r'L:\Dan test files_01012025\OBJ X20\X20_big_image.tif', big_image)
-    print(f"Time taken: {time.time()-t:.2f} seconds")
-    t=time.time()
-    path=r"L:\Dan test files_01012025\OBJ X10\test_obj x10_11x11 FOV's GFP.nd2"
-    big_image = process_split_size(200, path)
-    tiff.imwrite(r'L:\Dan test files_01012025\OBJ X10\X10_big_image.tif', big_image)
-    print(f"Time taken: {time.time()-t:.2f} seconds")
+    path=r'K:\BSF\26122024_BSF reapet_1\Chips'
+    for file in os.listdir(path):
+        sub_path=os.path.join(path,file)
+        for sub_file in os.listdir(sub_path):
+            t=time.time()
+            process_split_size(100,os.path.join(sub_path,sub_file),sub_file)
+            print(f"Time taken: {time.time()-t:.2f} seconds")
+
 
 
 
