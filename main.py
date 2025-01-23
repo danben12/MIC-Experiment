@@ -8,8 +8,9 @@ from bokeh.models import Div, HoverTool, TapTool, ColorBar, CheckboxGroup, LogTi
     BasicTicker, Legend, LegendItem, BoxAnnotation, Span, Whisker, Label, Spacer, \
     ColumnDataSource, CDSView, Select, CustomJS, GlyphRenderer
 from bokeh.layouts import column, row
-from bokeh.palettes import Category20, RGB, bokeh
+from bokeh.palettes import Category20, RGB, bokeh, Viridis256
 from bokeh.plotting import figure, show, markers
+from bokeh.transform import linear_cmap
 from networkx.algorithms.bipartite import density
 from scipy.stats import linregress
 from matplotlib import cm
@@ -1116,7 +1117,101 @@ def bins_volume_Vs_distance(data_dict,chip):
     plot_death_rate = create_plot(df, 'Mean Slope', 'mean_slope','Slope')
     return row(plot_fold_change, plot_death_rate)
 
+def FC_vs_density(data_dict):
+    fold_change = np.array([])
+    density=np.array([])
+    Volume = np.array([])
+    droplet_id = np.array([])
+    google_drive_url = np.array([])  # Array to store Google Drive URLs
+    min_fc = -10
+    for key, value in data_dict.items():
+        if value['Count'].iloc[0] == 0:
+            continue
+        else:
+            if value['Count'].iloc[-4:].mean() == 0:
+                fold_change = np.append(fold_change, np.nan)
+                Volume = np.append(Volume, value['Volume'].iloc[0])
+                density=np.append(density,value['Count'].iloc[0]/value['Volume'].iloc[0])
+                droplet_id = np.append(droplet_id, value['Droplet'].iloc[0])
+                google_drive_url = np.append(google_drive_url, value['Google Drive Link'].iloc[0])  # Add URL
+            else:
+                fold_change = np.append(fold_change, value['Count'].iloc[-4:].mean() / value['Count'].iloc[0])
+                Volume = np.append(Volume, value['Volume'].iloc[0])
+                density = np.append(density, value['Count'].iloc[0] / value['Volume'].iloc[0])
+                droplet_id = np.append(droplet_id, value['Droplet'].iloc[0])
+                google_drive_url = np.append(google_drive_url, value['Google Drive Link'].iloc[0])  # Add URL
+    fold_change = np.log2(fold_change)
+    fold_change = np.where(np.isnan(fold_change), min_fc, fold_change)
+    df = pd.DataFrame(
+        {'Volume': np.log10(Volume), 'fold change': fold_change,'Density':np.log2(density), 'Droplet': droplet_id, 'Google Drive Link': google_drive_url})
+    p = figure(title='Log2 Fold Change vs. Log2 Density colored by Volume', x_axis_label='Log2 Density', y_axis_label='Log2 Fold Change',output_backend="webgl", width=800, height=600)
+    source = ColumnDataSource(df)
+    jet_palette = [RGB(*[int(255 * c) for c in cm.jet(i)[:3]]).to_hex() for i in range(256)]
+    color_mapper = LinearColorMapper(palette=jet_palette, low=3, high=7.5)
+    p.scatter(x='Density', y='fold change', source=source,
+              color=linear_cmap('Volume', jet_palette, 3, 7.5), alpha=0.8)
+    color_bar = ColorBar(color_mapper=color_mapper, location=(0, 0), title='Log10 Volume')
+    p.renderers.append(color_bar)
+    p.add_layout(color_bar, 'right')
+    hover = HoverTool(tooltips=[('Log2 Density', '@Density'), ('Log2 Fold Change', '@{fold change}'), ('Droplet', '@Droplet'),('Log10 Volume', '@Volume')])
+    p.add_tools(hover)
+    taptool = TapTool(callback=CustomJS(args=dict(source=source), code="""
+        const selected_index = source.selected.indices[0];
+        if (selected_index != null) {
+            const url = source.data['Google Drive Link'][selected_index];
+            window.open(url, "_blank");
+        }
+    """))
+    p.add_tools(taptool)
+    return p
 
+def FC_vs_Volume(data_dict):
+    fold_change = np.array([])
+    density=np.array([])
+    Volume = np.array([])
+    droplet_id = np.array([])
+    google_drive_url = np.array([])  # Array to store Google Drive URLs
+    min_fc = -10
+    for key, value in data_dict.items():
+        if value['Count'].iloc[0] == 0:
+            continue
+        else:
+            if value['Count'].iloc[-4:].mean() == 0:
+                fold_change = np.append(fold_change, np.nan)
+                Volume = np.append(Volume, value['Volume'].iloc[0])
+                density=np.append(density,value['Count'].iloc[0]/value['Volume'].iloc[0])
+                droplet_id = np.append(droplet_id, value['Droplet'].iloc[0])
+                google_drive_url = np.append(google_drive_url, value['Google Drive Link'].iloc[0])  # Add URL
+            else:
+                fold_change = np.append(fold_change, value['Count'].iloc[-4:].mean() / value['Count'].iloc[0])
+                Volume = np.append(Volume, value['Volume'].iloc[0])
+                density = np.append(density, value['Count'].iloc[0] / value['Volume'].iloc[0])
+                droplet_id = np.append(droplet_id, value['Droplet'].iloc[0])
+                google_drive_url = np.append(google_drive_url, value['Google Drive Link'].iloc[0])  # Add URL
+    fold_change = np.log2(fold_change)
+    fold_change = np.where(np.isnan(fold_change), min_fc, fold_change)
+    df = pd.DataFrame(
+        {'Volume': np.log2(Volume), 'fold change': fold_change,'Density':np.log2(density), 'Droplet': droplet_id, 'Google Drive Link': google_drive_url})
+    p = figure(title='Log2 Fold Change vs. Log2 Volume colored by Density', x_axis_label='Log2 Volume', y_axis_label='Log2 Fold Change',output_backend="webgl", width=800, height=600)
+    source = ColumnDataSource(df)
+    jet_palette = [RGB(*[int(255 * c) for c in cm.jet(i)[:3]]).to_hex() for i in range(256)]
+    color_mapper = LinearColorMapper(palette=jet_palette, low=-12, high=-4)
+    p.scatter(x='Volume', y='fold change', source=source,
+              color=linear_cmap('Density', jet_palette, -12, -4), alpha=0.8)
+    color_bar = ColorBar(color_mapper=color_mapper, location=(0, 0), title='Log2 Density')
+    p.renderers.append(color_bar)
+    p.add_layout(color_bar, 'right')
+    hover = HoverTool(tooltips=[('Log2 Density', '@Density'), ('Log2 Fold Change', '@{fold change}'), ('Droplet', '@Droplet'),('Log2 Volume', '@Volume')])
+    p.add_tools(hover)
+    taptool = TapTool(callback=CustomJS(args=dict(source=source), code="""
+        const selected_index = source.selected.indices[0];
+        if (selected_index != null) {
+            const url = source.data['Google Drive Link'][selected_index];
+            window.open(url, "_blank");
+        }
+    """))
+    p.add_tools(taptool)
+    return p
 def dashborde():
     chips = split_data_to_chips()
     initial_densities = initial_stats(chips)
@@ -1130,36 +1225,39 @@ def dashborde():
     layouts={}
     for key, value in initial_data.items():
         chip, experiment_time, time_steps = get_slice(chips, key)
-        # stats_box_plot=stats_box(value, experiment_time, time_steps, key)
-        # droplets_histogram_plot=droplet_histogram(value)
-        # Initial_Density_Vs_Volume_plot,volume=Initial_Density_Vs_Volume(value, initial_densities[key])
-        # N0_Vs_Volume_plot=N0_Vs_Volume(value,volume)
-        # Fraction_in_each_bin_plot=Fraction_in_each_bin(chip, experiment_time)
-        # growth_curves_plot=growth_curves(chip)
-        # normalize_growth_curves_plot=normalize_growth_curves(chip)
-        # fold_change_plot=fold_change(chip,volume)
-        # last_4_hours_average_plot=last_4_hours_average(chip,volume)
-        # death_rate_by_droplets_plot=death_rate_by_droplets(chip,key)
-        # death_rate_by_bins_plot=death_rate_by_bins(chip)
-        # distance_Vs_Volume_histogram_plot=distance_Vs_Volume_histogram(value)
-        # distance_Vs_occupide_histogram_plot=distance_Vs_occupide_histogram(value)
-        # distance_Vs_Volume_circle_plot=distance_Vs_Volume_circle(value)
-        # distance_Vs_occupide_circle_plot=distance_Vs_occupide_circle(value)
+        stats_box_plot=stats_box(value, experiment_time, time_steps, key)
+        droplets_histogram_plot=droplet_histogram(value)
+        Initial_Density_Vs_Volume_plot,volume=Initial_Density_Vs_Volume(value, initial_densities[key])
+        N0_Vs_Volume_plot=N0_Vs_Volume(value,volume)
+        Fraction_in_each_bin_plot=Fraction_in_each_bin(chip, experiment_time)
+        growth_curves_plot=growth_curves(chip)
+        normalize_growth_curves_plot=normalize_growth_curves(chip)
+        fold_change_plot=fold_change(chip,volume)
+        last_4_hours_average_plot=last_4_hours_average(chip,volume)
+        death_rate_by_droplets_plot=death_rate_by_droplets(chip,key)
+        death_rate_by_bins_plot=death_rate_by_bins(chip)
+        distance_Vs_Volume_histogram_plot=distance_Vs_Volume_histogram(value)
+        distance_Vs_occupide_histogram_plot=distance_Vs_occupide_histogram(value)
+        distance_Vs_Volume_circle_plot=distance_Vs_Volume_circle(value)
+        distance_Vs_occupide_circle_plot=distance_Vs_occupide_circle(value)
         distance_Vs_Volume_colored_by_death_rate_plot=distance_Vs_Volume_colored_by_death_rate(value, chip,key)
         distance_Vs_Volume_colored_by_fold_change_plot=distance_Vs_Volume_colored_by_fold_change(value, chip)
         bins_volume_Vs_distance_plot=bins_volume_Vs_distance(chip,key)
+        FC_vs_density_plot=FC_vs_density(chip)
+        FC_vs_Volume_plot=FC_vs_Volume(chip)
         layout = column(
-                        # stats_box_plot,
-                        # row(droplets_histogram_plot, N0_Vs_Volume_plot),
-                        # row(Initial_Density_Vs_Volume_plot,Fraction_in_each_bin_plot),
-                        # growth_curves_plot,
-                        # normalize_growth_curves_plot,
-                        # row(death_rate_by_droplets_plot, death_rate_by_bins_plot),
-                        # row(fold_change_plot, last_4_hours_average_plot),
-                        # row(distance_Vs_Volume_histogram_plot, distance_Vs_occupide_histogram_plot),
-                        # row(distance_Vs_Volume_circle_plot, distance_Vs_occupide_circle_plot),
+                        stats_box_plot,
+                        row(droplets_histogram_plot, N0_Vs_Volume_plot),
+                        row(Initial_Density_Vs_Volume_plot,Fraction_in_each_bin_plot),
+                        growth_curves_plot,
+                        normalize_growth_curves_plot,
+                        row(death_rate_by_droplets_plot, death_rate_by_bins_plot),
+                        row(fold_change_plot, last_4_hours_average_plot),
+                        row(distance_Vs_Volume_histogram_plot, distance_Vs_occupide_histogram_plot),
+                        row(distance_Vs_Volume_circle_plot, distance_Vs_occupide_circle_plot),
                         row(distance_Vs_Volume_colored_by_death_rate_plot, distance_Vs_Volume_colored_by_fold_change_plot,spacing=75),
-                        bins_volume_Vs_distance_plot
+                        bins_volume_Vs_distance_plot,
+                        row(FC_vs_density_plot,FC_vs_Volume_plot)
                         )
         layouts[key]=layout
     return layouts

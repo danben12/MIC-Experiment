@@ -1,18 +1,11 @@
-from cProfile import label
-
 import comparisons
 from bokeh.plotting import figure
-from bokeh.io import show
-from bokeh.models import Legend, LegendItem, GlyphRenderer, Span, LabelSet, CustomJS, Scatter, Quad, Segment, Line, \
-    CheckboxGroup, ColorBar
+from bokeh.io import show, output_file
+from bokeh.models import Legend, LegendItem, GlyphRenderer, Span, CustomJS, Scatter, Quad, Segment, Line, \
+    CheckboxGroup, Patch, Label, HoverTool, TapTool, ColumnDataSource, Range1d,Select
 from bokeh.palettes import Category20
-from bokeh.models import HoverTool, TapTool
-from bokeh.models import ColumnDataSource
 from bokeh.layouts import column, row
-from bokeh.models import Range1d
-from bokeh.models import Label
 
-plot_types, chip_names = comparisons.dashborde()
 
 def overlay_histograms(plot_types, chip_names):
     histograms = [plot.children[0] for plot in plot_types['droplet_histogram']]
@@ -191,7 +184,7 @@ def growth_curves_overlay(plot_types,chip_names):
     legend = Legend(items=legend_items)
     fig_log.add_layout(legend, 'right')
     fig_log.legend.click_policy = 'hide'
-    return column(fig_linear,fig_log)
+    return fig_linear,fig_log
 def normalize_growth_curves_overlay(plot_types,chip_names):
     normalize_growth_curves_lin = [plot.children[0] for plot in plot_types['normalize_growth_curves']]
     normalize_growth_curves_log = [plot.children[1] for plot in plot_types['normalize_growth_curves']]
@@ -237,7 +230,7 @@ def normalize_growth_curves_overlay(plot_types,chip_names):
     legend = Legend(items=legend_items)
     fig_log.add_layout(legend, 'right')
     fig_log.legend.click_policy = 'hide'
-    return column(fig_linear, fig_log)
+    return fig_linear, fig_log
 
 def fold_change_overlay(plot_types,chip_names):
     fold_change=plot_types['fold_change']
@@ -367,16 +360,13 @@ def death_rate_by_droplets_overlay(plot_types,chip_names):
     legend_items = []
     colors = Category20[20]
     for i, s in enumerate(death_rate_by_droplets):
-        print(f"Processing element {i} of {len(death_rate_by_droplets)}")
         combined_tooltips = []
         add=False
         quad_renderers = []
         segments_renderers = []
         line_renderers = []
         for j, renderer in enumerate(s.renderers):
-            print(f"  Renderer {j} of {len(s.renderers)}")
             if isinstance(renderer.glyph, Scatter):
-                print(f"    Scatter")
                 add=True
                 renderer.visible = False
                 scatter_renderer = renderer
@@ -389,7 +379,6 @@ def death_rate_by_droplets_overlay(plot_types,chip_names):
                 scatter_renderer.glyph.fill_color = colors[i * 2]
                 continue
             elif isinstance(renderer.glyph,Quad):
-                print(f"    Quad")
                 renderer.visible = False
                 fig.renderers.append(renderer)
                 renderer.glyph.fill_alpha=0.3
@@ -399,14 +388,12 @@ def death_rate_by_droplets_overlay(plot_types,chip_names):
                 quad_renderers.append(renderer)
                 continue
             elif isinstance(renderer.glyph,Segment):
-                print(f"    Segment")
                 renderer.visible = False
                 fig.renderers.append(renderer)
                 renderer.glyph.line_color = colors[i * 2]
                 segments_renderers.append(renderer)
                 continue
             elif isinstance(renderer.glyph,Line) and add and not renderer.glyph.line_dash:
-                print(f"    Line")
                 renderer.visible = False
                 fig.renderers.append(renderer)
                 renderer.glyph.line_color = colors[i * 2]
@@ -765,5 +752,224 @@ def distance_Vs_Volume_colored_by_fold_change_overlay(plot_types,chip_names):
             }
         """))
     return row(combined_checkbox_group, fig)
+def bins_volume_Vs_distance_overlay(plot_types,chip_names):
+    plot_fold_change=[plot.children[0] for plot in plot_types['bins_volume_Vs_distance']]
+    plot_death_rate=[plot.children[1] for plot in plot_types['bins_volume_Vs_distance']]
+    fig_fold_change = figure(title='Distance Bin vs. Mean Fold Change', x_axis_label='Distance Bin', y_axis_label='Mean Fold Change',
+                   output_backend="webgl", width=1600, height=1200)
+    fig_death_rate =figure(title='Distance Bin vs. Minimal/Maximal Slope', x_axis_label='Distance Bin', y_axis_label='Mean Slope',
+                   output_backend="webgl", width=1600, height=1200)
+    legend_items = []
+    for i, g in enumerate(plot_fold_change):
+        line_counter = 0
+        combined_tooltips = []
+        for j, renderer in enumerate(g.renderers):
+            legend_item_renderers = []
+            # Start with a Line glyph
+            if isinstance(renderer.glyph, Line):
+                renderer.visible = False
+                legend_item_renderers.append(renderer)
+                fig_fold_change.renderers.append(renderer)
+                j += 1
+                # Add the Scatter glyph
+                if j < len(g.renderers) and isinstance(g.renderers[j].glyph, Scatter):
+                    g.renderers[j].visible = False
+                    legend_item_renderers.append(g.renderers[j])
+                    fig_fold_change.renderers.append(g.renderers[j])
+                    j += 1
+                    # Add all Patch glyphs
+                    while j < len(g.renderers) and isinstance(g.renderers[j].glyph, Patch):
+                        g.renderers[j].visible = False
+                        legend_item_renderers.append(g.renderers[j])
+                        fig_fold_change.renderers.append(g.renderers[j])
+                        j += 1
+                label = f"Volume bin {3 + line_counter}-{4 + line_counter} {chip_names[i]}"
+                legend_items.append(LegendItem(label=label, renderers=legend_item_renderers))
+                line_counter += 1
+        for tool in g.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig_fold_change.js_on_event('tap', tool.callback)
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig_fold_change.add_tools(hover)
+    fig_fold_change.add_tools(TapTool())
+    legend = Legend(items=legend_items)
+    fig_fold_change.add_layout(legend, 'right')
+    fig_fold_change.legend.click_policy = 'hide'
+    legend_items = []
+    for i, g in enumerate(plot_death_rate):
+        line_counter = 0
+        combined_tooltips = []
+        for j, renderer in enumerate(g.renderers):
+            legend_item_renderers = []
+            # Start with a Line glyph
+            if isinstance(renderer.glyph, Line):
+                renderer.visible = False
+                legend_item_renderers.append(renderer)
+                fig_death_rate.renderers.append(renderer)
+                j += 1
+                # Add the Scatter glyph
+                if j < len(g.renderers) and isinstance(g.renderers[j].glyph, Scatter):
+                    g.renderers[j].visible = False
+                    legend_item_renderers.append(g.renderers[j])
+                    fig_death_rate.renderers.append(g.renderers[j])
+                    j += 1
+                    # Add all Patch glyphs
+                    while j < len(g.renderers) and isinstance(g.renderers[j].glyph, Patch):
+                        g.renderers[j].visible = False
+                        legend_item_renderers.append(g.renderers[j])
+                        fig_death_rate.renderers.append(g.renderers[j])
+                        j += 1
+                label = f"Volume bin {3 + line_counter}-{4 + line_counter} {chip_names[i]}"
+                legend_items.append(LegendItem(label=label, renderers=legend_item_renderers))
+                line_counter += 1
+        for tool in g.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig_death_rate.js_on_event('tap', tool.callback)
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig_death_rate.add_tools(hover)
+    fig_death_rate.add_tools(TapTool())
+    legend = Legend(items=legend_items)
+    fig_death_rate.add_layout(legend, 'right')
+    fig_death_rate.legend.click_policy = 'hide'
+    return fig_fold_change,fig_death_rate
 
-show(distance_Vs_Volume_colored_by_fold_change_overlay(plot_types,chip_names))
+
+def FC_vs_density_overlay(plot_types, chip_names):
+    FC_vs_density = plot_types['FC_vs_density']
+    fig = figure(title='Log2 Fold Change vs. Log2 Density colored by Volume', x_axis_label='Log2 Density',
+                 y_axis_label='Log2 Fold Change', output_backend="webgl", width=1600, height=1200)
+    renderers = []
+    labels = []
+    for i, g in enumerate(FC_vs_density):
+        combined_tooltips = []
+        fig.renderers.extend(g.renderers[:-1])
+        renderers.extend(g.renderers[:-1])
+        labels.extend([f"{chip_names[i]}"])
+        for renderer in g.renderers:
+            renderer.visible = False
+        if i == 0:
+            colorbar = g.renderers[-1]
+            colorbar.visible = True
+            fig.add_layout(colorbar, 'right')
+        for tool in g.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig.js_on_event('tap', tool.callback)
+
+    checkbox_group = CheckboxGroup(labels=labels, active=[])
+    checkbox_group.js_on_change('active', CustomJS(args=dict(renderers=renderers), code="""
+        for (let i = 0; i < renderers.length; i++) {
+            renderers[i].visible = cb_obj.active.includes(i);
+        }
+    """))
+
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig.add_tools(hover)
+    fig.add_tools(TapTool())
+    layout = row(checkbox_group, fig)
+    return layout
+
+def FC_vs_volume_overlay(plot_types, chip_names):
+    FC_vs_volume = plot_types['FC_vs_Volume']
+    fig = figure(title='Log2 Fold Change vs. Log2 Volume colored by Density', x_axis_label='Log2 Volume', y_axis_label='Log2 Fold Change',output_backend="webgl", width=1600, height=1200)
+    renderers = []
+    labels = []
+    for i, g in enumerate(FC_vs_volume):
+        combined_tooltips = []
+        if i == 0:
+            fig.add_layout(g.renderers[-1], 'right')
+        fig.renderers.extend(g.renderers[:-1])
+        renderers.extend(g.renderers[:-1])
+        labels.extend([f"{chip_names[i]}"])
+        for renderer in g.renderers:
+            renderer.visible = False
+        if i == 0:
+            colorbar = g.renderers[-1]
+            colorbar.visible = True
+            fig.add_layout(colorbar, 'right')
+        for tool in g.tools:
+            if isinstance(tool, HoverTool):
+                combined_tooltips.extend(tool.tooltips)
+            elif isinstance(tool, TapTool):
+                fig.js_on_event('tap', tool.callback)
+
+    checkbox_group = CheckboxGroup(labels=labels, active=[])
+    checkbox_group.js_on_change('active', CustomJS(args=dict(renderers=renderers), code="""
+        for (let i = 0; i < renderers.length; i++) {
+            renderers[i].visible = cb_obj.active.includes(i);
+        }
+    """))
+    hover = HoverTool(tooltips=combined_tooltips)
+    fig.add_tools(hover)
+    fig.add_tools(TapTool())
+    layout = row(checkbox_group, fig)
+    return layout
+
+
+
+
+
+def overlay_dashboard(plot_types,chip_names):
+    lin_growth_curves, log_growth_curves = growth_curves_overlay(plot_types, chip_names)
+    lin_norm_growth_curves, log_norm_growth_curves = normalize_growth_curves_overlay(plot_types, chip_names)
+    distance_bin_fold_change, distance_bin_death_rate = bins_volume_Vs_distance_overlay(plot_types, chip_names)
+    figures = {
+        "Histogram": overlay_histograms(plot_types, chip_names),
+        "N0 vs Volume": N0_Vs_Volume_overlay(plot_types, chip_names),
+        "Initial Density vs Volume": Initial_Density_Vs_Volume_overlay(plot_types, chip_names),
+        "Fraction in Each Bin": Fraction_in_each_bin_overlay(plot_types, chip_names),
+        "Linear Scale Growth Curves": lin_growth_curves,
+        "Log Scale Growth Curves": log_growth_curves,
+        "Linear Scale Normalized Growth Curves": lin_norm_growth_curves,
+        "Log Scale Normalized Growth Curves": log_norm_growth_curves,
+        "Fold Change": fold_change_overlay(plot_types, chip_names),
+        "Last 4 Hours Average": last_4_hours_average_overlay(plot_types, chip_names),
+        "Death Rate by Droplets": death_rate_by_droplets_overlay(plot_types, chip_names),
+        "Death Rate by Bins": death_rate_by_bins_overlay(plot_types, chip_names),
+        "Distance vs Volume Histogram": distance_Vs_Volume_histogram_overlay(plot_types, chip_names),
+        "Distance vs Occupied Histogram": distance_Vs_occupide_histogram_overlay(plot_types, chip_names),
+        "Distance vs Volume Circle": distance_Vs_Volume_circle_overlay(plot_types, chip_names),
+        "Distance vs Occupied Circle": distance_Vs_occupide_circle_overlay(plot_types, chip_names),
+        "Distance vs Volume Colored by Death Rate": distance_Vs_Volume_colored_by_death_rate_overlay(plot_types,
+                                                                                                     chip_names),
+        "Distance vs Volume Colored by Fold Change": distance_Vs_Volume_colored_by_fold_change_overlay(plot_types,
+                                                                                                       chip_names),
+        "Distance Bin vs. Mean Fold Change": distance_bin_fold_change,
+        "Distance Bin vs. Minimal/Maximal Slope": distance_bin_death_rate,
+        "FC vs Density": FC_vs_density_overlay(plot_types, chip_names),
+        "FC vs Volume": FC_vs_volume_overlay(plot_types, chip_names)
+    }
+    return figures
+
+
+def create_dashboard(plot_types, chip_names):
+    figures = overlay_dashboard(plot_types, chip_names)
+    output_file("overlay.html")
+    select = Select(title="Select Plot", options=list(figures.keys()), value=list(figures.keys())[0])
+    layout = column(select, *figures.values())
+
+    for fig in figures.values():
+        fig.visible = False
+    figures[select.value].visible = True
+
+    select.js_on_change('value', CustomJS(args=dict(figures=figures), code="""
+        for (let key in figures) {
+            figures[key].visible = false;
+        }
+        figures[cb_obj.value].visible = true;
+    """))
+
+    show(layout)
+if __name__ == '__main__':
+    plot_types, chip_names = comparisons.dashborde()
+    create_dashboard(plot_types, chip_names)
+
+
+
+
+
