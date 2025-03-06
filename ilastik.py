@@ -9,37 +9,37 @@ ilastik_executable = r'C:\Users\Owner\ilastik-1.3.3post3\ilastik.exe'
 # Dictionary mapping each chip to its project file and directory
 chip_data = {
     'C1': {
-        'project_file': r'K:\BSF_0762024_Amp MIC\ilastik\area based segmetation - C1.ilp',
-        'directory': r'K:\BSF_0762024_Amp MIC\HDF5\C1Large_HDF5'
+        'project_file': r'K:\21012025_BSF obj x10\C1\C1 area based.ilp',
+        'directory': r'K:\21012025_BSF obj x10\C1\Long term\HDF5\Large_HDF5'
     },
     'C2': {
-        'project_file': r'K:\BSF_0762024_Amp MIC\ilastik\area based segmetation - C2.ilp',
-        'directory': r'K:\BSF_0762024_Amp MIC\HDF5\C2Large_HDF5'
+        'project_file': r'K:\21012025_BSF obj x10\C2\C2 area based.ilp',
+        'directory': r'K:\21012025_BSF obj x10\C2\Long term\HDF5\Large_HDF5'
     },
     'C3': {
-        'project_file': r'K:\BSF_0762024_Amp MIC\ilastik\area based segmetation - C3.ilp',
-        'directory': r'K:\BSF_0762024_Amp MIC\HDF5\C3Large_HDF5'
+        'project_file': r'K:\21012025_BSF obj x10\C3\C3 area based.ilp',
+        'directory': r'K:\21012025_BSF obj x10\C3\Long term\HDF5\Large_HDF5'
     },
     'C4': {
-        'project_file': r'K:\BSF_0762024_Amp MIC\ilastik\area based segmetation - C4.ilp',
-        'directory': r'K:\BSF_0762024_Amp MIC\HDF5\C4Large_HDF5'
+        'project_file': r'K:\21012025_BSF obj x10\C4\C4 area based.ilp',
+        'directory': r'K:\21012025_BSF obj x10\C4\Long term\HDF5\Large_HDF5'
     },
     'C5': {
-        'project_file': r'K:\BSF_0762024_Amp MIC\ilastik\area based segmetation - C5.ilp',
-        'directory': r'K:\BSF_0762024_Amp MIC\HDF5\C5Large_HDF5'
+        'project_file': r'K:\21012025_BSF obj x10\C5\C5 area based.ilp',
+        'directory': r'K:\21012025_BSF obj x10\C5\GFP\HDF5\Large_HDF5'
     },
     'C6': {
-        'project_file': r'K:\BSF_0762024_Amp MIC\ilastik\area based segmetation - C6.ilp',
-        'directory': r'K:\BSF_0762024_Amp MIC\HDF5\C6Large_HDF5'
+        'project_file': r'K:\21012025_BSF obj x10\C6\C6 area based.ilp',
+        'directory': r'K:\21012025_BSF obj x10\C6\Long term\HDF5\Large_HDF5'
     },
     'C7': {
-        'project_file': r'K:\BSF_0762024_Amp MIC\ilastik\area based segmetation - C7.ilp',
-        'directory': r'K:\BSF_0762024_Amp MIC\HDF5\C7Large_HDF5'
+        'project_file': r'K:\21012025_BSF obj x10\C7\C7 area based.ilp',
+        'directory': r'K:\21012025_BSF obj x10\C7\Long term\HDF5\Large_HDF5'
     },
     'C8': {
-        'project_file': r'K:\BSF_0762024_Amp MIC\ilastik\area based segmetation - C8.ilp',
-        'directory': r'K:\BSF_0762024_Amp MIC\HDF5\C8Large_HDF5'
-    }
+        'project_file': r'K:\21012025_BSF obj x10\C8\C8 area based.ilp',
+        'directory': r'K:\21012025_BSF obj x10\C8\Long term\HDF5\Large_HDF5'
+    },
 }
 
 # Get the number of CPUs available

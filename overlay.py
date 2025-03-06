@@ -371,7 +371,7 @@ def death_rate_by_droplets_overlay(plot_types,chip_names):
                 renderer.visible = False
                 scatter_renderer = renderer
                 fig.renderers.append(scatter_renderer)
-                if i==3 or i==4:
+                if i==0 or i==4:
                     label = f'Maximal slope by Droplets {chip_names[i]}'
                 else:
                     label = f'Minimal slope by Droplets {chip_names[i]}'
@@ -441,8 +441,8 @@ def death_rate_by_bins_overlay(plot_types,chip_names):
 
 def distance_Vs_Volume_histogram_overlay(plot_types,chip_names):
     distance_Vs_Volume_histogram=plot_types['distance_Vs_Volume_histogram']
-    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4055"]
-    fig = figure(x_range=distance_labels, title="Normalized Stacked Histogram: Distance vs. Log Volume",
+    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4000","4000-5000","5000-6000","6000+"]
+    fig = figure(x_range=distance_labels, title="Normalized Stacked Histogram: Distance vs. Log 10 Volume",
                toolbar_location=None, tools="", width=1600, height=1200, output_backend="webgl")
     legend_items = []
     colors = Category20[20]
@@ -494,8 +494,8 @@ def distance_Vs_Volume_histogram_overlay(plot_types,chip_names):
 
 def distance_Vs_occupide_histogram_overlay(plot_types,chip_names):
     distance_Vs_occupide_histogram=plot_types['distance_Vs_occupide_histogram']
-    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4055"]
-    fig = figure(x_range=distance_labels, title="Normalized Stacked Histogram: Distance vs. Log Volume Occupied",
+    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4000","4000-5000","5000-6000","6000+"]
+    fig = figure(x_range=distance_labels, title="Normalized Stacked Histogram: Distance vs. Log 10 Volume Occupied",
                toolbar_location=None, tools="", width=1600, height=1200, output_backend="webgl")
     legend_items = []
     colors = Category20[20]
@@ -547,53 +547,53 @@ def distance_Vs_occupide_histogram_overlay(plot_types,chip_names):
 def distance_Vs_Volume_circle_overlay(plot_types,chip_names):
     distance_Vs_Volume_circle=plot_types['distance_Vs_Volume_circle']
     fig = figure(title='Distance to Center vs. Volume',
-               output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110), width=1600, height=1200)
+               output_backend="webgl", x_range=(0, 13000), y_range=(0, 13000), width=1600, height=1200)
     legend_items = []
     colors = Category20[20]
     for i, s in enumerate(distance_Vs_Volume_circle):
         combine_tooltips = []
         for j, renderer in enumerate(s.renderers):
-            if i==0 and j in [0,1,2,3]:
+            if i==0 and j in [0,1,2,3,4,5,6]:
                 fig.renderers.append(renderer)
                 continue
-            elif j==4:
+            elif j==7:
                 renderer.visible = False
                 fig.renderers.append(renderer)
                 label = f'Bin 3-4 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
-                renderer.glyph.fill_alpha = 0.3
-                renderer.glyph.line_alpha = 0.5
-            elif j == 5:
-                renderer.visible = False
-                fig.renderers.append(renderer)
-                label = f'Bin 4-5 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
-                renderer.glyph.fill_alpha = 0.3
-                renderer.glyph.line_alpha = 0.5
-            elif j == 6:
-                renderer.visible = False
-                fig.renderers.append(renderer)
-                label = f'Bin 5-6 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
-                renderer.glyph.fill_alpha = 0.3
-                renderer.glyph.line_alpha = 0.5
-            elif j == 7:
-                renderer.visible = False
-                fig.renderers.append(renderer)
-                label = f'Bin 6-7 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_color = colors[0]
+                renderer.glyph.line_color = colors[0]
                 renderer.glyph.fill_alpha = 0.3
                 renderer.glyph.line_alpha = 0.5
             elif j == 8:
                 renderer.visible = False
                 fig.renderers.append(renderer)
+                label = f'Bin 4-5 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[1]
+                renderer.glyph.line_color = colors[1]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 9:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 5-6 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[2]
+                renderer.glyph.line_color = colors[2]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 10:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 6-7 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[3]
+                renderer.glyph.line_color = colors[3]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 11:
+                renderer.visible = False
+                fig.renderers.append(renderer)
                 label = f'Bin 7-8 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_color = colors[4]
+                renderer.glyph.line_color = colors[4]
                 renderer.glyph.fill_alpha = 0.3
                 renderer.glyph.line_alpha = 0.5
             else:
@@ -612,53 +612,53 @@ def distance_Vs_Volume_circle_overlay(plot_types,chip_names):
 def distance_Vs_occupide_circle_overlay(plot_types,chip_names):
     distance_Vs_occupide_circle=plot_types['distance_Vs_occupide_circle']
     fig = figure(title='Distance to Center vs. Volume Occupied',
-               output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110), width=1600, height=1200)
+               output_backend="webgl", x_range=(0, 13000), y_range=(0, 13000), width=1600, height=1200)
     legend_items = []
     colors = Category20[20]
     for i, s in enumerate(distance_Vs_occupide_circle):
         combine_tooltips = []
         for j, renderer in enumerate(s.renderers):
-            if i==0 and j in [0,1,2,3]:
+            if i==0 and j in [0,1,2,3,4,5,6]:
                 fig.renderers.append(renderer)
                 continue
-            elif j==4:
+            elif j==7:
                 renderer.visible = False
                 fig.renderers.append(renderer)
                 label = f'Bin 3-4 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
-                renderer.glyph.fill_alpha = 0.3
-                renderer.glyph.line_alpha = 0.5
-            elif j == 5:
-                renderer.visible = False
-                fig.renderers.append(renderer)
-                label = f'Bin 4-5 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
-                renderer.glyph.fill_alpha = 0.3
-                renderer.glyph.line_alpha = 0.5
-            elif j == 6:
-                renderer.visible = False
-                fig.renderers.append(renderer)
-                label = f'Bin 5-6 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
-                renderer.glyph.fill_alpha = 0.3
-                renderer.glyph.line_alpha = 0.5
-            elif j == 7:
-                renderer.visible = False
-                fig.renderers.append(renderer)
-                label = f'Bin 6-7 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_color = colors[0]
+                renderer.glyph.line_color = colors[0]
                 renderer.glyph.fill_alpha = 0.3
                 renderer.glyph.line_alpha = 0.5
             elif j == 8:
                 renderer.visible = False
                 fig.renderers.append(renderer)
+                label = f'Bin 4-5 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[1]
+                renderer.glyph.line_color = colors[1]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 9:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 5-6 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[2]
+                renderer.glyph.line_color = colors[2]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 10:
+                renderer.visible = False
+                fig.renderers.append(renderer)
+                label = f'Bin 6-7 {chip_names[i]}'
+                renderer.glyph.fill_color = colors[3]
+                renderer.glyph.line_color = colors[3]
+                renderer.glyph.fill_alpha = 0.3
+                renderer.glyph.line_alpha = 0.5
+            elif j == 11:
+                renderer.visible = False
+                fig.renderers.append(renderer)
                 label = f'Bin 7-8 {chip_names[i]}'
-                renderer.glyph.fill_color = colors[j]
-                renderer.glyph.line_color = colors[j]
+                renderer.glyph.fill_color = colors[4]
+                renderer.glyph.line_color = colors[4]
                 renderer.glyph.fill_alpha = 0.3
                 renderer.glyph.line_alpha = 0.5
             else:
@@ -690,12 +690,12 @@ def distance_Vs_Volume_colored_by_death_rate_overlay(plot_types,chip_names):
     for i, s in enumerate(plot):
         combined_tooltips = []
         for j, renderer in enumerate(s.renderers):
-            if i==0 and j in [0,1,2,3]:
+            if i == 0 and j in [0, 1, 2, 3, 4, 5, 6]:
                 fig.renderers.append(renderer)
                 continue
             elif i==1 and j==len(s.renderers)-1:
                 fig.add_layout(renderer, 'right')
-            elif j>=4 and j<len(s.renderers)-1:
+            elif j>=7 and j<len(s.renderers)-1:
                 renderer.visible = False
                 fig.renderers.append(renderer)
                 renderer.glyph.line_alpha = 0.5
@@ -708,7 +708,7 @@ def distance_Vs_Volume_colored_by_death_rate_overlay(plot_types,chip_names):
     hover=HoverTool(tooltips=combined_tooltips)
     fig.add_tools(hover)
     fig.add_tools(TapTool())
-    combined_checkbox_group.js_on_change('active', CustomJS(args=dict(renderers=fig.renderers[4:]), code="""
+    combined_checkbox_group.js_on_change('active', CustomJS(args=dict(renderers=fig.renderers[7:]), code="""
         for (let i = 0; i < renderers.length; i++) {
             renderers[i].visible = cb_obj.active.includes(i);
         }
@@ -728,12 +728,12 @@ def distance_Vs_Volume_colored_by_fold_change_overlay(plot_types,chip_names):
     for i, s in enumerate(plot):
         combined_tooltips = []
         for j, renderer in enumerate(s.renderers):
-            if i == 0 and j in [0, 1, 2, 3]:
+            if i == 0 and j in [0, 1, 2, 3, 4, 5, 6]:
                 fig.renderers.append(renderer)
                 continue
             elif i == 1 and j == len(s.renderers) - 1:
                 fig.add_layout(renderer, 'right')
-            elif j >= 4 and j < len(s.renderers) - 1:
+            elif j >= 7 and j < len(s.renderers) - 1:
                 renderer.visible = False
                 fig.renderers.append(renderer)
                 renderer.glyph.line_alpha = 0.5
@@ -746,7 +746,7 @@ def distance_Vs_Volume_colored_by_fold_change_overlay(plot_types,chip_names):
     hover = HoverTool(tooltips=combined_tooltips)
     fig.add_tools(hover)
     fig.add_tools(TapTool())
-    combined_checkbox_group.js_on_change('active', CustomJS(args=dict(renderers=fig.renderers[4:]), code="""
+    combined_checkbox_group.js_on_change('active', CustomJS(args=dict(renderers=fig.renderers[7:]), code="""
             for (let i = 0; i < renderers.length; i++) {
                 renderers[i].visible = cb_obj.active.includes(i);
             }

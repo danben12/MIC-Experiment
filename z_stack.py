@@ -62,13 +62,16 @@ def process_split_size(i, path, name):
 #     plt.show()
 #     print(f"Time taken: {time.time()-t:.2f} seconds")
 if __name__ == "__main__":
-    path=r'K:\BSF\26122024_BSF reapet_1\Chips'
-    for file in os.listdir(path):
-        sub_path=os.path.join(path,file)
-        for sub_file in os.listdir(sub_path):
-            t=time.time()
-            process_split_size(100,os.path.join(sub_path,sub_file),sub_file)
-            print(f"Time taken: {time.time()-t:.2f} seconds")
+    paths=[r'K:\21012025_BSF obj x10\gfp long term (26 to 72h)']
+    for path in paths:
+        filenames=os.listdir(path)
+        for filename in filenames:
+            if filename.endswith('.nd2'):
+                t=time.time()
+                process_split_size(100, os.path.join(path, filename), filename)
+                print(f"Time taken: {time.time()-t:.2f} seconds")
+
+
 
 
 

@@ -4,6 +4,7 @@ import pandas as pd
 import roifile
 from shapely.geometry import Polygon
 from multiprocessing import Pool, cpu_count
+
 def read_roi_metadata_from_zip(zip_file_path):
     roi_metadata = []
     with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
@@ -17,7 +18,7 @@ def read_roi_metadata_from_zip(zip_file_path):
                         'name': file_name,
                         'coordinates': coordinates
                     }
-                    if roi.roitype == 8:  # 8 corresponds to 'Traced'
+                    if roi.roitype == 8 or roi.roitype == 7:
                         area = calculate_polygon_area(coordinates)
                         metadata['area'] = area
                         if area > 4:
@@ -59,9 +60,10 @@ def count_bacteria_in_droplets(bacteria_metadata, droplets_metadata):
     return droplet_areas
 
 if __name__ == '__main__':
-    base_path = r'K:\BSF_0762024_Amp MIC'
+    base_path = r'K:\21012025_BSF obj x10'
     chips = [f'C{i}' for i in range(1, 9)]
-    hours = [f'{h:02d}h' for h in range(25)]
+    chips_full_names={'C1':"C1 - Control GFP T=",'C2':"C2 - 30 ug per ml GFP T=",'C3':"C3 - 10 ug per ml GFP T=",'C4':"C4 - 3.3 ug per ml GFP T=",'C5':"C5 - Control GFP T=",'C6':"C6 - 3.3 ug per ml GFP T=",'C7':"C7 - 30 ug per ml GFP T=",'C8':"C8 - 10 ug per ml GFP T="}
+    hours = range(25)
 
 
     for chip in chips:
@@ -69,8 +71,8 @@ if __name__ == '__main__':
         results = []
         for hour in hours:
             t1=time.time()
-            bacteria_path = f'{base_path}\\HDF5\\{chip}Large_HDF5\\{chip} area-based segmentation\\{chip}\\{hour}_{chip}_Simple Segmentation.tif.zip'
-            droplets_path = f'{base_path}\\Droplets\\droplets_results\\zip\\{chip}\\{chip}.zip'
+            bacteria_path = f'{base_path}\\{chip}\\GFP\\bacteria validation\\{chips_full_names[chip]}{hour}.nd2 best z_RGB_Simple Segmentation.tif.zip'
+            droplets_path = f'{base_path}\\{chip}\\Alexa T=0\\best LUT\\zip\\{chip}.zip'
             try:
                 bacteria_roi = read_roi_metadata_from_zip(bacteria_path)
                 droplets_roi = read_roi_metadata_from_zip(droplets_path)

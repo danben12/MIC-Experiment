@@ -10,7 +10,7 @@ from bokeh.models import Div, HoverTool, TapTool, ColorBar, CheckboxGroup, LogTi
 from bokeh.layouts import column, row
 from bokeh.palettes import Category20, RGB, bokeh, Viridis256
 from bokeh.plotting import figure, show, markers
-from bokeh.transform import linear_cmap
+from bokeh.transform import linear_cmap, jitter
 from networkx.algorithms.bipartite import density
 from scipy.stats import linregress
 from matplotlib import cm
@@ -472,10 +472,9 @@ def last_4_hours_average(chip, volume):
     return scatter
 
 def find_droplet_location(df):
-    square_size = 8110
-    circle_radius = square_size / 2
-    circle_center_x = square_size / 2
-    circle_center_y = square_size / 2
+    circle_radius = 13200/2
+    circle_center_x = 13200 / 2
+    circle_center_y = 13200 / 2
     df['distance_to_center'] = np.sqrt((df['X'] - circle_center_x) ** 2 + (df['Y'] - circle_center_y) ** 2)
     df['is_inside_circle'] = df['distance_to_center'] <= circle_radius
     return df[df['is_inside_circle']].reset_index(drop=True)
@@ -549,7 +548,7 @@ def death_rate_by_droplets(data_dict,chip):
             value['slope'] = value['log_count'].rolling(window_size).apply(
                 lambda x: linregress(range(window_size), x)[0])
             volumes.append(value['Volume'].iloc[0])
-            if chip=='C4- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
+            if chip=='C1- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
                 max_death_rate.append(value['slope'].max())
             else:
                 max_death_rate.append(value['slope'].min())
@@ -575,7 +574,7 @@ def death_rate_by_droplets(data_dict,chip):
     metapopulation['slope'] = metapopulation['log_metapopulation'].rolling(window=window_size).apply(
         lambda x: linregress(range(window_size), x)[0]
     )
-    if chip=='C4- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
+    if chip=='C1- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
         mean_death_rate = metapopulation['slope'].max()
         title = 'Maximal slope by Droplets'
     else:
@@ -665,8 +664,8 @@ def death_rate_by_droplets(data_dict,chip):
 
 def distance_Vs_Volume_histogram(df):
     df = df.copy()
-    distance_bins = [0, 1000, 2000, 3000, float('inf')]
-    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4055"]
+    distance_bins = [0, 1000, 2000, 3000,4000,5000,6000, float('inf')]
+    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4000","4000-5000","5000-6000","6000+"]
     volume_bins = [3, 4, 5, 6, 7, 8]
     volume_labels = ["3-4", "4-5", "5-6", "6-7", "7-8"]
     df['distance_bin'] = pd.cut(df['distance_to_center'], bins=distance_bins, labels=distance_labels, right=False)
@@ -679,8 +678,8 @@ def distance_Vs_Volume_histogram(df):
     source = ColumnDataSource(data=source_data)
     colors = Category20[len(volume_labels)]  # Colors for the stacked bars
     p = figure(x_range=distance_labels, title="Normalized Stacked Histogram: Distance vs. Log Volume",
-               toolbar_location=None, tools="")
-    p.vbar_stack(volume_labels, x='distance_bin', width=0.9, color=colors, source=source,
+               toolbar_location=None, tools="", output_backend="webgl", width=800, height=600)
+    p.vbar_stack(volume_labels, x='distance_bin', width=0.6, color=colors, source=source,
                  legend_label=volume_labels)
     p.y_range.start = 0
     p.xgrid.grid_line_color = None
@@ -702,8 +701,8 @@ def distance_Vs_Volume_histogram(df):
 def distance_Vs_occupide_histogram(df):
     df = df.copy()
     df = df[df['Count'] > 0]
-    distance_bins = [0, 1000, 2000, 3000, float('inf')]
-    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4055"]
+    distance_bins = [0, 1000, 2000, 3000,4000,5000,6000, float('inf')]
+    distance_labels = ["0-1000", "1000-2000", "2000-3000", "3000-4000","4000-5000","5000-6000","6000+"]
     volume_bins = [3, 4, 5, 6, 7, 8]
     volume_labels = ["3-4", "4-5", "5-6", "6-7", "7-8"]
     df['distance_bin'] = pd.cut(df['distance_to_center'], bins=distance_bins, labels=distance_labels, right=False)
@@ -716,8 +715,8 @@ def distance_Vs_occupide_histogram(df):
     source = ColumnDataSource(data=source_data)
     colors = Category20[len(volume_labels)]  # Colors for the stacked bars
     p = figure(x_range=distance_labels, title="Normalized Stacked Histogram: Distance vs. Log Volume Occupied",
-               toolbar_location=None, tools="")
-    p.vbar_stack(volume_labels, x='distance_bin', width=0.9, color=colors, source=source,
+               toolbar_location=None, tools="", output_backend="webgl", width=800, height=600)
+    p.vbar_stack(volume_labels, x='distance_bin', width=0.6, color=colors, source=source,
                  legend_label=volume_labels)
     p.y_range.start = 0
     p.xgrid.grid_line_color = None
@@ -742,11 +741,11 @@ def distance_Vs_Volume_circle(df):
     df['lower bin'] = df['log_Volume'].apply(math.floor)
     df['upper bin'] = df['log_Volume'].apply(math.ceil)
     p = figure(title='Distance to Center vs. Volume',
-               output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110))
-    circle_center_x = 4055
-    circle_center_y = 4055
-    radius_values = [1000, 2000, 3000, 4055 * 1.04]
-    labels = ['0-1000', '1000-2000', '2000-3000', '3000+']
+               output_backend="webgl", x_range=(0, 13000), y_range=(0, 13000))
+    circle_center_x = (df['X'].min()+df['X'].max())/2
+    circle_center_y = (df['Y'].min()+df['Y'].max())/2
+    radius_values = [1000, 2000, 3000, 4000,5000,6000,6500*1.04]
+    labels = ['0-1000', '1000-2000', '2000-3000', '3000-4000','4000-5000','5000-6000','6000+']
     for i, radius in enumerate(radius_values):
         p.circle(x=[circle_center_x], y=[circle_center_y], radius=radius,
                  line_color="black", fill_color=None, alpha=0.5)
@@ -782,11 +781,11 @@ def distance_Vs_occupide_circle(df):
     df['lower bin'] = df['log_Volume'].apply(math.floor)
     df['upper bin'] = df['log_Volume'].apply(math.ceil)
     p = figure(title='Distance to Center vs. Volume Occupied',
-               output_backend="webgl", x_range=(0, 8110), y_range=(0, 8110))
-    circle_center_x = 4055
-    circle_center_y = 4055
-    radius_values = [1000, 2000, 3000, 4055 * 1.04]
-    labels = ['0-1000', '1000-2000', '2000-3000', '3000+']
+               output_backend="webgl", x_range=(0, 13000), y_range=(0, 13000))
+    circle_center_x = (df['X'].min()+df['X'].max())/2
+    circle_center_y = (df['Y'].min()+df['Y'].max())/2
+    radius_values = [1000, 2000, 3000, 4000,5000,6000,6500*1.04]
+    labels = ['0-1000', '1000-2000', '2000-3000', '3000-4000','4000-5000','5000-6000','6000+']
     for i, radius in enumerate(radius_values):
         p.circle(x=[circle_center_x], y=[circle_center_y], radius=radius,
                  line_color="black", fill_color=None, alpha=0.5)
@@ -848,7 +847,7 @@ def distance_Vs_Volume_colored_by_death_rate(df, data_dict,chip):
             value['log_count'] = value[mask]['Count'].apply(np.log)
             value['slope'] = value['log_count'].rolling(window_size).apply(
                 lambda x: linregress(range(window_size), x)[0])
-            if chip=='C4- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
+            if chip=='C1- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
                 max_death_rate.append(value['slope'].max())
             else:
                 max_death_rate.append(value['slope'].min())
@@ -859,7 +858,7 @@ def distance_Vs_Volume_colored_by_death_rate(df, data_dict,chip):
     jet_palette = [RGB(*[int(255 * c) for c in cm.jet(i)[:3]]).to_hex() for i in range(256)]
     color_mapper = LinearColorMapper(palette=jet_palette, low=-2,
                                      high=2)
-    if chip=='C4- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
+    if chip=='C1- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
         title = 'Distance to Center vs. Volume Colored by Maximal Slope'
     else:
         title = 'Distance to Center vs. Volume Colored by Minimal Slope'
@@ -870,12 +869,12 @@ def distance_Vs_Volume_colored_by_death_rate(df, data_dict,chip):
     )
     p.xaxis.axis_label = "X"
     p.yaxis.axis_label = "Y"
-    circle_center_x = 4055
-    circle_center_y = 4055
-    for radius in [4055*1.04, 3000, 2000, 1000]:
+    circle_center_x = (df['X'].min()+df['X'].max())/2
+    circle_center_y = (df['Y'].min()+df['Y'].max())/2
+    for radius in [6500*1.04,6000,5000,4000, 3000, 2000, 1000]:
         p.circle(x=[circle_center_x], y=[circle_center_y], radius=radius, line_color="black", fill_color=None,
                  alpha=0.5)
-        label_text = f'{radius - 1000}-{radius}' if radius < 4055 else '3000+'
+        label_text = f'{radius - 1000}-{radius}' if radius < 6500 else '6000+'
         label = Label(x=circle_center_x, y=circle_center_y + (radius - 1000) * 1.05, text=label_text, text_align='center',
                       text_baseline='middle', text_font_style='bold', text_font_size='12pt')
         p.add_layout(label)
@@ -957,12 +956,12 @@ def distance_Vs_Volume_colored_by_fold_change(df, data_dict):
     )
     p.xaxis.axis_label = "X"
     p.yaxis.axis_label = "Y"
-    circle_center_x = 4055
-    circle_center_y = 4055
-    for radius in [4055*1.04, 3000, 2000, 1000]:
+    circle_center_x = (df['X'].min()+df['X'].max())/2
+    circle_center_y = (df['Y'].min()+df['Y'].max())/2
+    for radius in [6500*1.04,6000,5000,4000, 3000, 2000, 1000]:
         p.circle(x=[circle_center_x], y=[circle_center_y], radius=radius, line_color="black", fill_color=None,
                  alpha=0.5)
-        label_text = f'{radius - 1000}-{radius}' if radius < 4055 else '3000+'
+        label_text = f'{radius - 1000}-{radius}' if radius < 6500 else '6000+'
         label = Label(x=circle_center_x, y=circle_center_y + (radius - 1000) * 1.05, text=label_text, text_align='center',
                       text_baseline='middle', text_font_style='bold', text_font_size='12pt')
         p.add_layout(label)
@@ -1031,7 +1030,7 @@ def bins_volume_Vs_distance(data_dict,chip):
             mask = value['Count'] > 0
             value['log_count'] = value[mask]['Count'].apply(np.log10)
             value['slope'] = value['log_count'].rolling(window_size).apply(lambda x: linregress(range(window_size), x)[0])
-            if chip=='C4- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
+            if chip=='C1- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
                 death_rates.append(value['slope'].max())
             else:
                 death_rates.append(value['slope'].min())
@@ -1040,7 +1039,7 @@ def bins_volume_Vs_distance(data_dict,chip):
     df['Fold Change'] = np.where(np.isnan(df['Fold Change']), min_fc, df['Fold Change'])
     df['upper_volume_bin'] = df['Volume'].apply(math.ceil)
     df['lower_volume_bin'] = df['Volume'].apply(math.floor)
-    distance_bins = [0, 1000, 2000, 3000, float('inf')]
+    distance_bins = [0, 1000, 2000, 3000,4000,5000,6000, float('inf')]
     df['lower_distance_bin'] = pd.cut(df['Distance'], bins=distance_bins, labels=distance_bins[:-1], right=False)
     df['upper_distance_bin'] = pd.cut(df['Distance'], bins=distance_bins, labels=distance_bins[1:], right=False)
     df['mean_fold_change'] = np.nan
@@ -1055,7 +1054,7 @@ def bins_volume_Vs_distance(data_dict,chip):
     def create_plot(results, y_axis_label, y_column,points_column):
         if y_axis_label == 'Mean Fold Change':
             title = 'Distance Bin vs. Mean Fold Change'
-        elif y_axis_label == 'Mean Slope' and chip=='C4- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
+        elif y_axis_label == 'Mean Slope' and chip=='C1- CONTROL (no antibiotics)' or chip=='C5- CONTROL (no antibiotics)':
             title = 'Distance Bin vs. Maximal Slope'
         elif y_axis_label == 'Mean Slope':
             title = 'Distance Bin vs. Minimal Slope'
@@ -1072,7 +1071,7 @@ def bins_volume_Vs_distance(data_dict,chip):
             source = ColumnDataSource(volume_bin_data)
             sources.append(source)
             line = p.line(x='lower_distance_bin', y=y_column, source=source, line_width=3, color=colors[i])
-            scatter = p.scatter(x='lower_distance_bin', y=points_column,source=source, color=colors[i], fill_alpha=0.5)
+            scatter = p.scatter(x=jitter('lower_distance_bin', width=100, range=p.x_range), y=points_column,source=source, color=colors[i], fill_alpha=0.5)
             scatter_renderers.append(scatter)
             violin_renderers = []
             for lower_distance_bin in volume_bin_data['lower_distance_bin'].unique():
